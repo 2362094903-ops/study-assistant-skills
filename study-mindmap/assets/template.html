@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>__TITLE__</title>
+<style>
+  :root { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #fafaf7; }
+  #toolbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 8px 14px; background: #ffffffee; border-bottom: 1px solid #e5e7eb;
+    backdrop-filter: blur(4px);
+  }
+  #toolbar h1 { font-size: 15px; margin: 0 8px 0 0; color: #111827; font-weight: 600; }
+  #search { padding: 4px 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; width: 180px; outline: none; }
+  #search:focus { border-color: #3b82f6; }
+  #matchInfo { font-size: 12px; color: #6b7280; min-width: 56px; }
+  button {
+    padding: 4px 10px; font-size: 12px; border: 1px solid #d1d5db; border-radius: 6px;
+    background: #fff; color: #374151; cursor: pointer;
+  }
+  button:hover { background: #f3f4f6; }
+  #legend { display: flex; gap: 10px; margin-left: auto; font-size: 11px; color: #4b5563; align-items: center; flex-wrap: wrap; }
+  .chip { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 3px; vertical-align: -1px; border: 1px solid rgba(0,0,0,.15); }
+  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; }
+  #canvas:active { cursor: grabbing; }
+  .node rect { stroke-width: 1.5; rx: 7; }
+  .node text { font-size: 13px; fill: #1f2937; user-select: none; }
+  .node { cursor: pointer; }
+  .node.hit rect { stroke: #f97316 !important; stroke-width: 3; }
+  .link { fill: none; stroke: #cbd5e1; stroke-width: 1.5; }
+  .toggle circle { fill: #fff; stroke: #94a3b8; stroke-width: 1.2; }
+  .toggle text { font-size: 11px; fill: #475569; text-anchor: middle; user-select: none; }
+  #tip {
+    position: fixed; display: none; z-index: 20; max-width: 280px;
+    background: #1f2937; color: #f9fafb; font-size: 12px; line-height: 1.6;
+    padding: 8px 12px; border-radius: 8px; pointer-events: none;
+  }
+  #footer { position: fixed; bottom: 6px; right: 12px; font-size: 11px; color: #9ca3af; z-index: 5; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <h1>__TITLE__</h1>
+  <input id="search" placeholder="搜索知识点…">
+  <span id="matchInfo"></span>
+  <button onclick="expandAll()">展开全部</button>
+  <button onclick="collapseToSections()">折叠到小节</button>
+  <button onclick="fitView()">适应窗口</button>
+  <button onclick="zoomBy(1.2)">＋</button>
+  <button onclick="zoomBy(1/1.2)">－</button>
+  <div id="legend">
+    <span><span class="chip" style="background:#f3f4f6;border-color:#9ca3af"></span>未学</span>
+    <span><span class="chip" style="background:#fee2e2;border-color:#ef4444"></span>薄弱(1-2)</span>
+    <span><span class="chip" style="background:#fef3c7;border-color:#f59e0b"></span>基本(3)</span>
+    <span><span class="chip" style="background:#ecfccb;border-color:#84cc16"></span>熟练(4)</span>
+    <span><span class="chip" style="background:#dcfce7;border-color:#16a34a"></span>精通(5)</span>
+    <span>★ 高频考点</span>
+  </div>
+</div>
+<svg id="canvas"><g id="view"></g></svg>
+<div id="tip"></div>
+<div id="footer">__GENERATED__ · 单击节点折叠/展开 · 拖拽平移 · 滚轮缩放</div>
+
+<script>
+const DATA = __DATA__;
+
+/* ---------- 颜色 ---------- */
+function nodeColor(d) {
+  if (d.children) {                      // 结构节点（章/节）
+    return d.depth === 0 ? { fill: "#1d4ed8", stroke: "#1e3a8a", text: "#fff" }
+                         : { fill: "#dbeafe", stroke: "#3b82f6", text: "#1e3a8a" };
+  }
+  const m = d.data.mastery || 0;
+  if (m >= 5) return { fill: "#dcfce7", stroke: "#16a34a", text: "#14532d" };
+  if (m >= 4) return { fill: "#ecfccb", stroke: "#84cc16", text: "#365314" };
+  if (m >= 3) return { fill: "#fef3c7", stroke: "#f59e0b", text: "#713f12" };
+  if (m >= 1) return { fill: "#fee2e2", stroke: "#ef4444", text: "#7f1d1d" };
+  return { fill: "#f3f4f6", stroke: "#9ca3af", text: "#374151" };
+}
+
+/* ---------- 构造内部树 ---------- */
+let uid = 0;
+function build(data, depth, parent) {
+  const n = { id: uid++, data, depth, parent, collapsed: false, hit: false };
+  n.label = (data.importance === "高" ? "★ " : "") + data.name;
+  if (data.children && data.children.length)
+    n.children = data.children.map(c => build(c, depth + 1, n));
+  return n;
+}
+const root = build(DATA, 0, null);
+function each(n, fn) { fn(n); (n.children || []).forEach(c => each(c, fn)); }
+function descendants(n) { let k = 0; each(n, () => k++); return k - 1; }
+
+/* ---------- 文字测量与布局 ---------- */
+const meas = document.createElement("canvas").getContext("2d");
+meas.font = '13px -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif';
+each(root, n => { n.w = Math.ceil(meas.measureText(n.label).width) + 28; n.h = 30; });
+
+const ROW = 40, GAP = 46;
+function layout() {
+  const colW = [];
+  each(root, n => {
+    if (n.depth && isHiddenByCollapse(n)) return;
+    colW[n.depth] = Math.max(colW[n.depth] || 0, n.w);
+  });
+  const colX = [0];
+  for (let d = 1; d < colW.length; d++) colX[d] = colX[d - 1] + (colW[d - 1] || 0) + GAP;
+  let leafY = 0;
+  (function place(n) {
+    n.x = colX[n.depth];
+    const kids = n.collapsed ? [] : (n.children || []);
+    if (!kids.length) { n.y = leafY; leafY += ROW; }
+    else { kids.forEach(place); n.y = (kids[0].y + kids[kids.length - 1].y) / 2; }
+  })(root);
+  return leafY;
+}
+function isHiddenByCollapse(n) {
+  for (let p = n.parent; p; p = p.parent) if (p.collapsed) return true;
+  return false;
+}
+
+/* ---------- 渲染 ---------- */
+const svg = document.getElementById("canvas"), view = document.getElementById("view");
+const tip = document.getElementById("tip");
+const NS = "http://www.w3.org/2000/svg";
+function el(name, attrs, parent) {
+  const e = document.createElementNS(NS, name);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  parent.appendChild(e); return e;
+}
+const STATUS_TXT = { "未学": "未学", "已讲解": "已讲解", "已测验": "已测验", "已检验": "已检验" };
+
+function render() {
+  layout();
+  view.innerHTML = "";
+  each(root, n => {            // 连线在节点下层先画
+    if (isHiddenByCollapse(n) || n.collapsed || !n.children) return;
+    n.children.forEach(c => {
+      const x1 = n.x + n.w, y1 = n.y + n.h / 2, x2 = c.x, y2 = c.y + c.h / 2;
+      const mx = (x1 + x2) / 2;
+      el("path", { class: "link", d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}` }, view);
+    });
+  });
+  each(root, n => {
+    if (n.depth && isHiddenByCollapse(n)) return;
+    const c = nodeColor(n);
+    const g = el("g", { class: "node" + (n.hit ? " hit" : ""), transform: `translate(${n.x},${n.y})` }, view);
+    el("rect", { width: n.w, height: n.h, rx: 7, fill: c.fill, stroke: c.stroke }, g);
+    const t = el("text", { x: 14, y: n.h / 2 + 4.5 }, g);
+    t.textContent = n.label; t.style.fill = c.text;
+    if (n.children) {
+      const tg = el("g", { class: "toggle", transform: `translate(${n.w},${n.h / 2})` }, g);
+      el("circle", { r: 8 }, tg);
+      const tt = el("text", { y: 3.5 }, tg);
+      tt.textContent = n.collapsed ? "+" + descendants(n) : "−";
+    }
+    g.addEventListener("click", ev => {
+      ev.stopPropagation();
+      if (n.children) { n.collapsed = !n.collapsed; render(); }
+    });
+    g.addEventListener("mousemove", ev => {
+      if (n.children) return;
+      const d = n.data;
+      tip.innerHTML = `<b>${d.name}</b><br>编号：${d.id || "-"} ｜ 重要度：${d.importance || "-"}<br>状态：${STATUS_TXT[d.status] || "未学"} ｜ 掌握度：${d.mastery || 0}/5` + (d.note ? `<br>备注：${d.note}` : "");
+      tip.style.display = "block";
+      tip.style.left = Math.min(ev.clientX + 14, innerWidth - 300) + "px";
+      tip.style.top = (ev.clientY + 14) + "px";
+    });
+    g.addEventListener("mouseleave", () => tip.style.display = "none");
+  });
+}
+
+/* ---------- 平移缩放 ---------- */
+let tf = { x: 40, y: 70, k: 1 };
+function applyTf() { view.setAttribute("transform", `translate(${tf.x},${tf.y}) scale(${tf.k})`); }
+let drag = null;
+svg.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, tx: tf.x, ty: tf.y }; });
+addEventListener("mousemove", e => {
+  if (!drag) return;
+  tf.x = drag.tx + e.clientX - drag.x; tf.y = drag.ty + e.clientY - drag.y; applyTf();
+});
+addEventListener("mouseup", () => drag = null);
+svg.addEventListener("wheel", e => {
+  e.preventDefault();
+  const k = Math.min(3, Math.max(0.15, tf.k * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+  tf.x = e.clientX - (e.clientX - tf.x) * k / tf.k;
+  tf.y = e.clientY - (e.clientY - tf.y) * k / tf.k;
+  tf.k = k; applyTf();
+}, { passive: false });
+function zoomBy(f) {
+  const cx = innerWidth / 2, cy = innerHeight / 2;
+  const k = Math.min(3, Math.max(0.15, tf.k * f));
+  tf.x = cx - (cx - tf.x) * k / tf.k; tf.y = cy - (cy - tf.y) * k / tf.k; tf.k = k; applyTf();
+}
+function fitView() {
+  const totalH = layout();
+  let maxX = 0; each(root, n => { if (!isHiddenByCollapse(n)) maxX = Math.max(maxX, n.x + n.w); });
+  const kw = (innerWidth - 80) / maxX, kh = (innerHeight - 130) / Math.max(totalH, 1);
+  tf.k = Math.min(1.1, kw, kh); tf.x = 40; tf.y = 80; applyTf();
+}
+
+/* ---------- 折叠控制与搜索 ---------- */
+function expandAll() { each(root, n => n.collapsed = false); render(); }
+function collapseToSections() { each(root, n => n.collapsed = n.depth >= 1 && !!n.children); render(); }
+const box = document.getElementById("search"), info = document.getElementById("matchInfo");
+box.addEventListener("input", () => {
+  const q = box.value.trim().toLowerCase();
+  let hits = 0;
+  each(root, n => n.hit = false);
+  if (q) each(root, n => {
+    if (n.label.toLowerCase().includes(q)) {
+      n.hit = true; hits++;
+      for (let p = n.parent; p; p = p.parent) p.collapsed = false;
+    }
+  });
+  info.textContent = q ? hits + " 个匹配" : "";
+  render();
+});
+
+render(); fitView();
+</script>
+</body>
+</html>

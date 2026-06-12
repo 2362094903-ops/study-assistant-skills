@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>__TITLE__</title>
+<style>
+  :root { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  body { margin: 0; background: #f5f5f2; color: #1f2937; }
+  #wrap { max-width: 760px; margin: 0 auto; padding: 24px 18px 60px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  #meta { font-size: 12px; color: #6b7280; margin-bottom: 14px; }
+  #bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
+  #fill { height: 100%; width: 0; background: #3b82f6; transition: width .3s; }
+  #stats { font-size: 12px; color: #4b5563; margin-bottom: 18px; }
+  .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px 22px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .chips { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .chip { font-size: 11px; padding: 3px 10px; border-radius: 99px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+  .chip.point { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+  .stem { font-size: 15px; line-height: 1.9; white-space: pre-wrap; margin-bottom: 16px; }
+  .opt { display: block; width: 100%; text-align: left; margin: 8px 0; padding: 10px 14px; font-size: 14px; line-height: 1.6;
+         border: 1.5px solid #d1d5db; border-radius: 10px; background: #fff; cursor: pointer; }
+  .opt:hover { border-color: #3b82f6; background: #f8fafc; }
+  .opt:disabled { cursor: default; opacity: 1; color: #1f2937; }
+  .opt.picked { border-color: #2563eb; background: #eff6ff; }
+  .opt.right { border-color: #16a34a; background: #f0fdf4; }
+  .opt.wrong { border-color: #ef4444; background: #fef2f2; }
+  .opt.missed { border-color: #16a34a; border-style: dashed; background: #f0fdf4; }
+  .opt.dim { opacity: .55; }
+  .judge-row { display: flex; gap: 12px; }
+  .judge-row .opt { width: auto; flex: 1; text-align: center; font-weight: 600; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 130px; padding: 10px 12px; font: inherit; font-size: 14px;
+             border: 1.5px solid #d1d5db; border-radius: 10px; resize: vertical; outline: none; }
+  textarea:focus { border-color: #3b82f6; }
+  .btn { padding: 8px 18px; font-size: 14px; border: none; border-radius: 10px; background: #2563eb; color: #fff; cursor: pointer; margin-top: 12px; }
+  .btn:hover { background: #1d4ed8; }
+  .btn:disabled { background: #93c5fd; cursor: not-allowed; }
+  .btn.ghost { background: #fff; color: #374151; border: 1px solid #d1d5db; }
+  .btn.ghost:hover { background: #f3f4f6; }
+  .panel { margin-top: 16px; border-radius: 10px; padding: 14px 16px; font-size: 14px; line-height: 1.9; white-space: pre-wrap; }
+  .panel.ok { background: #f0fdf4; border: 1px solid #86efac; }
+  .panel.bad { background: #fef2f2; border: 1px solid #fca5a5; }
+  .panel.half { background: #fffbeb; border: 1px solid #fcd34d; }
+  .panel.ref { background: #fffbeb; border: 1px solid #fde68a; }
+  .panel b.tag { display: block; margin-bottom: 6px; }
+  #selfgrade { margin-top: 12px; }
+  #selfgrade button { margin: 4px 6px 0 0; padding: 6px 14px; font-size: 13px; border-radius: 99px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; }
+  #selfgrade button:hover { border-color: #2563eb; color: #2563eb; }
+  #selfgrade button.sel { background: #2563eb; color: #fff; border-color: #2563eb; }
+  #nav { display: flex; justify-content: space-between; margin-top: 18px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 14px 0; }
+  th, td { border: 1px solid #e5e7eb; padding: 7px 10px; text-align: left; }
+  th { background: #f9fafb; }
+  tr.miss td { background: #fef2f2; }
+  #score { font-size: 26px; font-weight: 700; margin: 6px 0 2px; }
+  #export-area { width: 100%; box-sizing: border-box; min-height: 140px; margin-top: 10px; font: 12px/1.6 monospace; padding: 10px; border: 1px solid #d1d5db; border-radius: 10px; display: none; }
+  .hint { font-size: 12px; color: #6b7280; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>__TITLE__</h1>
+  <div id="meta">__GENERATED__ · 共 <span id="total"></span> 题 · 做完一题立即显示答案与解析</div>
+  <div id="bar"><div id="fill"></div></div>
+  <div id="stats"></div>
+  <div id="main"></div>
+</div>
+
+<script>
+const DATA = __DATA__;
+const QS = DATA.questions;
+document.getElementById("total").textContent = QS.length;
+
+/* 归一化：judge 转成两选项；multi 答案排序 */
+QS.forEach(q => {
+  if (q.type === "judge") { q._opts = ["正确", "错误"]; q._ans = (q.answer === true) ? 0 : 1; }
+  else if (q.type === "single") { q._opts = q.options; q._ans = q.answer; }
+  else if (q.type === "multi") { q._opts = q.options; q._ansArr = [...q.answer].sort((a, b) => a - b); }
+});
+
+const state = QS.map(q => ({
+  answered: false, correct: null, earned: 0,
+  userAnswer: q.type === "multi" ? [] : "", selfLabel: ""
+}));
+let idx = 0;
+
+const GRADES = [
+  ["完全正确", 1.0], ["大部分正确", 0.75], ["对了一半", 0.5], ["少部分正确", 0.25], ["基本不会", 0]
+];
+
+function esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+function L(i) { return String.fromCharCode(65 + i); }
+function letters(arr) { return arr.length ? arr.map(L).join("、") : "—"; }
+function fullScore() { return QS.reduce((a, q) => a + (q.score || 0), 0); }
+function earned() { return state.reduce((a, s) => a + s.earned, 0); }
+function round1(x) { return Math.round(x * 10) / 10; }
+function isChoice(q) { return q.type === "single" || q.type === "judge"; }
+
+function updateHeader() {
+  const done = state.filter(s => s.answered).length;
+  document.getElementById("fill").style.width = (done / QS.length * 100) + "%";
+  document.getElementById("stats").textContent =
+    `已完成 ${done} / ${QS.length} 题 ｜ 当前得分 ${round1(earned())} / ${fullScore()} 分`;
+}
+
+function render() {
+  updateHeader();
+  const main = document.getElementById("main");
+  if (idx >= QS.length) { renderSummary(main); return; }
+  const q = QS[idx], st = state[idx];
+  let html = `<div class="card">
+    <div class="chips">
+      <span class="chip">第 ${idx + 1} / ${QS.length} 题 · ${esc(q.qtype_label || q.type)}</span>
+      ${q.point_name ? `<span class="chip point">知识点：${esc(q.point_name)}</span>` : ""}
+    </div>
+    <div class="stem">${esc(q.stem)}</div>`;
+
+  if (isChoice(q)) {
+    const isJudge = q.type === "judge";
+    html += (isJudge ? '<div class="judge-row">' : "") + q._opts.map((o, i) => {
+      let cls = "opt";
+      if (st.answered) {
+        if (i === q._ans) cls += " right";
+        else if (i === st.userAnswer) cls += " wrong";
+        else cls += " dim";
+      }
+      const label = isJudge ? esc(o) : `${L(i)}. ${esc(o)}`;
+      return `<button class="${cls}" data-i="${i}" ${st.answered ? "disabled" : ""}>${label}</button>`;
+    }).join("") + (isJudge ? "</div>" : "");
+    if (st.answered) {
+      const ansLabel = isJudge ? q._opts[q._ans] : L(q._ans);
+      html += `<div class="panel ${st.correct ? "ok" : "bad"}"><b class="tag">${st.correct ? "✓ 回答正确" : "✗ 回答错误"} ｜ 正确答案：${ansLabel} ｜ 得分 ${round1(st.earned)}/${q.score}</b>${esc(q.explanation || "")}</div>`;
+    }
+  } else if (q.type === "multi") {
+    const sel = new Set(st.userAnswer);
+    html += q._opts.map((o, i) => {
+      let cls = "opt";
+      if (!st.answered) { if (sel.has(i)) cls += " picked"; }
+      else {
+        const isAns = q._ansArr.includes(i), isPick = sel.has(i);
+        if (isAns && isPick) cls += " right";
+        else if (!isAns && isPick) cls += " wrong";
+        else if (isAns && !isPick) cls += " missed";
+        else cls += " dim";
+      }
+      return `<button class="${cls}" data-i="${i}" ${st.answered ? "disabled" : ""}>${L(i)}. ${esc(o)}</button>`;
+    }).join("");
+    if (!st.answered) {
+      html += `<div class="hint">多选题：选出所有正确项后点确认${q.partial ? "（漏选且无错选得一半分）" : "（错选、漏选均不得分）"}</div>`;
+      html += `<button class="btn" id="confirm" ${sel.size ? "" : "disabled"}>确认作答</button>`;
+    } else {
+      const cls = st.correct ? "ok" : (st.earned > 0 ? "half" : "bad");
+      const head = st.correct ? "✓ 完全正确" : (st.earned > 0 ? "◐ 漏选（得一半分）" : "✗ 回答错误");
+      html += `<div class="panel ${cls}"><b class="tag">${head} ｜ 正确答案：${letters(q._ansArr)} ｜ 你的选择：${letters([...sel].sort((a, b) => a - b))} ｜ 得分 ${round1(st.earned)}/${q.score}</b>${esc(q.explanation || "")}</div>`;
+    }
+  } else { /* text 主观题 */
+    html += `<textarea id="ta" placeholder="在这里写下你的答案（计算题请写出关键步骤）" ${st.answered ? "disabled" : ""}>${esc(st.userAnswer)}</textarea>`;
+    if (!st.answered) html += `<button class="btn" id="submit">提交并查看参考答案</button>`;
+    else {
+      html += `<div class="panel ref"><b class="tag">📖 参考答案与得分点（满分 ${q.score} 分）</b>${esc(q.reference || "")}${q.explanation ? "\n\n【易错提醒】" + esc(q.explanation) : ""}</div>`;
+      html += `<div id="selfgrade"><span class="hint">对照得分点给自己打分：</span><br>` +
+        GRADES.map(([label, f], gi) =>
+          `<button data-g="${gi}" class="${st.selfLabel === label ? "sel" : ""}">${label}（${round1(q.score * f)}分）</button>`).join("") + `</div>`;
+    }
+  }
+
+  html += `<div id="nav">
+    <button class="btn ghost" id="prev" ${idx === 0 ? "style='visibility:hidden'" : ""}>← 上一题</button>
+    ${navRight(q, st)}
+  </div></div>`;
+  main.innerHTML = html;
+  bind(q, st);
+}
+
+function navRight(q, st) {
+  const canGo = st.answered && (q.type !== "text" || st.selfLabel);
+  if (!canGo) return `<span class="hint" style="align-self:center">${st.answered ? "请先自评打分" : "作答后才能进入下一题"}</span>`;
+  return `<button class="btn" id="next">${idx === QS.length - 1 ? "查看成绩单 →" : "下一题 →"}</button>`;
+}
+
+function bind(q, st) {
+  document.querySelectorAll(".opt").forEach(b => b.addEventListener("click", () => {
+    if (st.answered) return;
+    const i = +b.dataset.i;
+    if (isChoice(q)) {
+      st.userAnswer = i;
+      st.correct = i === q._ans;
+      st.earned = st.correct ? q.score : 0;
+      st.answered = true;
+    } else if (q.type === "multi") {
+      const sel = new Set(st.userAnswer);
+      sel.has(i) ? sel.delete(i) : sel.add(i);
+      st.userAnswer = [...sel].sort((a, b) => a - b);
+    }
+    render();
+  }));
+  const confirm = document.getElementById("confirm");
+  if (confirm) confirm.addEventListener("click", () => {
+    const picks = st.userAnswer, ans = q._ansArr;
+    const wrongPick = picks.some(i => !ans.includes(i));
+    const allRight = picks.length === ans.length && !wrongPick;
+    st.correct = allRight;
+    st.earned = allRight ? q.score : (!wrongPick && picks.length > 0 && q.partial ? q.score / 2 : 0);
+    st.answered = true;
+    render();
+  });
+  const ta = document.getElementById("ta");
+  if (ta) ta.addEventListener("input", () => st.userAnswer = ta.value);
+  const sub = document.getElementById("submit");
+  if (sub) sub.addEventListener("click", () => { st.answered = true; render(); });
+  document.querySelectorAll("#selfgrade button").forEach(b => b.addEventListener("click", () => {
+    const [label, f] = GRADES[+b.dataset.g];
+    st.selfLabel = label; st.earned = q.score * f;
+    render();
+  }));
+  const prev = document.getElementById("prev");
+  if (prev) prev.addEventListener("click", () => { idx--; render(); });
+  const next = document.getElementById("next");
+  if (next) next.addEventListener("click", () => { idx++; render(); });
+}
+
+function resultText(q, st) {
+  if (q.type === "text") return `自评：${st.selfLabel || "—"}`;
+  if (q.type === "multi") return st.correct ? "✓ 正确" : `${st.earned > 0 ? "◐ 漏选" : "✗ 错误"}（选了 ${letters(st.userAnswer)}）`;
+  const pick = st.userAnswer === "" ? "—" : (q.type === "judge" ? q._opts[st.userAnswer] : L(st.userAnswer));
+  return st.correct ? "✓ 正确" : `✗ 错误（选了 ${pick}）`;
+}
+
+function renderSummary(main) {
+  const total = fullScore(), got = round1(earned());
+  const pct = total ? Math.round(got / total * 100) : 0;
+  const rows = QS.map((q, i) => {
+    const st = state[i], miss = st.earned < q.score;
+    return `<tr class="${miss ? "miss" : ""}"><td>${i + 1}</td><td>${esc(q.qtype_label || q.type)}</td><td>${esc(q.point_name || "-")}</td><td>${round1(st.earned)}/${q.score}</td><td>${resultText(q, st)}</td></tr>`;
+  }).join("");
+  const missCount = QS.filter((q, i) => state[i].earned < q.score).length;
+  main.innerHTML = `<div class="card">
+    <div class="chips"><span class="chip">成绩单</span></div>
+    <div id="score">${got} / ${total} 分（${pct}%）</div>
+    <div class="hint">${missCount ? "红色行为失分题，建议复盘后让老师把它们记入错题本。" : "全部正确，太棒了！"}</div>
+    <table><tr><th>#</th><th>题型</th><th>知识点</th><th>得分</th><th>结果</th></tr>${rows}</table>
+    <button class="btn" id="export">导出作答记录（贴回对话给老师批改）</button>
+    <button class="btn ghost" id="review">← 回看题目</button>
+    <textarea id="export-area" readonly></textarea>
+    <div class="hint" id="copyhint"></div>
+  </div>`;
+  document.getElementById("review").addEventListener("click", () => { idx = 0; render(); });
+  document.getElementById("export").addEventListener("click", () => {
+    const text = exportText();
+    const area = document.getElementById("export-area");
+    area.style.display = "block"; area.value = text;
+    area.select();
+    try { navigator.clipboard.writeText(text); document.getElementById("copyhint").textContent = "已复制到剪贴板，直接粘贴到对话里即可。"; }
+    catch (e) { document.getElementById("copyhint").textContent = "请手动全选复制上面的文本，粘贴到对话里。"; }
+  });
+}
+
+function exportText() {
+  const lines = [`【作答记录】${DATA.title} ｜ ${new Date().toLocaleString("zh-CN")}`,
+                 `总分：${round1(earned())} / ${fullScore()}`];
+  QS.forEach((q, i) => {
+    const st = state[i];
+    lines.push(`---`);
+    lines.push(`Q${i + 1} ｜ ${q.qtype_label || q.type} ｜ 知识点：${q.point_id || ""} ${q.point_name || ""} ｜ 得分 ${round1(st.earned)}/${q.score}`);
+    if (q.type === "multi") {
+      lines.push(`我的选择：${letters(st.userAnswer)}（正确答案 ${letters(q._ansArr)}，${st.correct ? "正确" : st.earned > 0 ? "漏选" : "错误"}）`);
+    } else if (isChoice(q)) {
+      const pick = st.userAnswer === "" ? "未作答" : (q.type === "judge" ? q._opts[st.userAnswer] : L(st.userAnswer));
+      const ans = q.type === "judge" ? q._opts[q._ans] : L(q._ans);
+      lines.push(`我的选择：${pick}（正确答案 ${ans}，${st.correct ? "正确" : "错误"}）`);
+    } else {
+      lines.push(`自评：${st.selfLabel || "未自评"}`);
+      lines.push(`我的答案：${(st.userAnswer || "（未作答）").trim()}`);
+    }
+  });
+  return lines.join("\n");
+}
+
+render();
+</script>
+</body>
+</html>
