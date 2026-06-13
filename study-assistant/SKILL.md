@@ -80,11 +80,13 @@ Each textbook gets a workspace next to the textbook file, named `<textbook-filen
   "next_action": "讲义",
   "exam_style_ready": false,
   "lecture_format": "both",
+  "study_mode": "deep",
   "log": [{"date": "2026-06-11", "event": "讲解 3.1.1 边际效用递减规律"}]
 }
 ```
 
-`lecture_format` is one of obsidian / html / both (set the first time the user chooses; ask once per textbook).
+- `lecture_format`: obsidian / html / both — the lecture file format (ask once per textbook).
+- `study_mode`: deep / speedrun — the teaching style (深入讲解 / 考试速通). Holds the current default; study-teach lets the learner switch it per section. See study-teach for what each mode does.
 
 **After creating or restructuring these files, always run the validator:**
 

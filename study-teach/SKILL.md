@@ -1,7 +1,7 @@
 ---
 name: study-teach
 description: >
-  Lecture & explanation sub-skill (orchestrated by study-assistant; also usable standalone). Use when the learner wants a chapter/section taught ("开始讲解" "讲一下第三章" "生成讲义" "继续下一节"), asks a follow-up question about studied content, or says they didn't understand ("给我讲讲X" "没听懂，重讲一遍"). Default mode generates complete section-by-section lecture notes — Obsidian Markdown and/or interactive HTML with rendered math, one worked example per knowledge point; conversation is reserved for targeted Q&A and re-teaching.
+  Lecture & explanation sub-skill (orchestrated by study-assistant; also usable standalone). Use when the learner wants a chapter/section taught ("开始讲解" "讲一下第三章" "生成讲义" "继续下一节"), asks a follow-up question about studied content, or says they didn't understand ("给我讲讲X" "没听懂，重讲一遍"). Generates complete section-by-section lecture notes in two selectable modes — 深入讲解 (deep understanding, leads with textbook原文) or 考试速通 (exam speed-run, 解题思维 + multiple examples) — as Obsidian Markdown and/or interactive HTML with rendered math; conversation is reserved for targeted Q&A and re-teaching.
 ---
 
 # Teaching: Lecture Notes + Q&A
@@ -20,21 +20,32 @@ Ask the learner once which lecture format they want and store it as `lecture_for
 - **interactive HTML** — 浏览器阅读、侧边目录、例题点击展开、"标记已学"进度（公式经 MathJax 渲染，需联网；离线退化为 LaTeX 源码）
 - **both**
 
+### Pick the teaching MODE (per section — confirm before generating)
+
+There are two teaching modes. Default to whatever progress.json's `study_mode` last held; before generating each section, briefly let the learner switch (harder chapters → deep, easy ones → speedrun). Store the chosen mode back to progress.json `study_mode`. The mode sets `mode` in the lecture JSON and changes which fields each point carries:
+
+- **`deep` 深入讲解** — truly understand and master the textbook. Each point leads with the textbook's key original wording, then a rich explanation. Substantial: a core point's `formal` runs ~500–1200 Chinese characters with full derivation/reasoning.
+- **`speedrun` 考试速通** — exam-focused, no lengthy theory. Each point states the conclusion in 1–3 sentences, then the **解题思维/套路** (how to read and solve this question type) and **multiple worked examples**. The center of gravity is doing problems and the method, not understanding for its own sake.
+
+Mode affects **lectures only** — quizzing (study-quiz) behaves the same in both modes.
+
 ### Generate one SECTION per pass — never a whole chapter
 
 Long generations degrade toward the end. One section (3.1, 3.2, ...) at a time; the learner reads it, asks questions, then requests the next.
 
 1. Read the section's source text in `textbook/` — lectures must stay faithful to the textbook, exams grade against it. Check `exam-style.md` if present; `exam_focus` fields must cite it.
-2. Write the lecture as JSON to `lessons/chapter-XX/<section>.json`, schema documented at the top of `~/.claude/skills/study-teach/scripts/build_lecture.py`. Content contract per knowledge point (every point of this section in knowledge.json must appear, with the same ids):
-   - `exam_focus` — 1–2 sentences: importance and typical question types (cite exam-style.md when it exists).
-   - `intuition` — daily-life example or analogy; state where the analogy breaks so it is never mistaken for the definition.
-   - `formal` — textbook-grade statement. LaTeX for every formula; explain every symbol; include the derivation when the subject demands it (full derivation for math subjects, logic chain for humanities).
-   - `example` — REQUIRED: one representative worked problem with a complete solution. It renders as click-to-expand, so the solution must be complete enough to self-check against.
-   - `pitfalls` — what it gets confused with, where exams set traps; contrast explicitly.
-   - `memory_hook` — mnemonic / framework; for humanities subjects add a 3–5 bullet recitation version.
-   - `links` — related point ids.
-   - Length matches weight: a minor concept ≈ 200–400 Chinese characters across fields; a core theorem ≈ 600–1000. Never pad small points.
-3. Render (the script validates the JSON and fails loudly on missing required fields):
+2. Write the lecture as JSON to `lessons/chapter-XX/<section>.json` with `"mode": "deep"|"speedrun"`, schema documented at the top of `~/.claude/skills/study-teach/scripts/build_lecture.py`. Every point of this section in knowledge.json must appear, with the same ids. Fields by mode:
+
+   **Both modes**: `exam_focus` (importance + question types, cite exam-style.md when present), `pitfalls`, `memory_hook` (mnemonic/framework; humanities: a 3–5 bullet recitation version), `links`.
+
+   **deep mode**: `textbook_excerpt` (教材关键原文 — quote the source verbatim when the extracted `textbook/` text is clean; paraphrase the core wording when it is scanned/messy), `intuition` (analogy + where it breaks), `formal` (REQUIRED — textbook-grade statement, LaTeX for every formula, every symbol explained, full derivation/reasoning; this is where depth lives — be thorough, ~500–1200 chars for core points). One `example` is usually enough.
+
+   **speedrun mode**: `key_point` (1–3 sentences nailing the exam point), `method` (REQUIRED — 解题思维: how to recognize this question type, which formula, what steps, what traps to watch), and `examples` (an array of 2–3 worked problems; emphasize the solving routine, not theory).
+
+   **Examples** (both modes): each is `{problem, solution}` with a complete solution — it renders click-to-expand, so the learner can self-check.
+
+   **Markdown is fine in any text field** — `**bold**`, `-`/`1.` lists, and `| a | b |` tables all render correctly in both HTML and Obsidian. Keep math in LaTeX `$...$` / `$$...$$`.
+3. Render (the script validates the JSON and fails loudly on missing/mode-required fields):
 
 ```bash
 python3 ~/.claude/skills/study-teach/scripts/build_lecture.py <section>.json --format <lecture_format>

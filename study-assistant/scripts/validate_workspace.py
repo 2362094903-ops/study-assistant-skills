@@ -94,6 +94,8 @@ def check_progress(path, errs, known_ids):
                 errs.append(f"progress.json: log[{i}] must be {{'date': ..., 'event': ...}}")
     if "lecture_format" in data and data["lecture_format"] not in ("obsidian", "html", "both"):
         errs.append("progress.json: lecture_format must be obsidian / html / both")
+    if "study_mode" in data and data["study_mode"] not in ("deep", "speedrun"):
+        errs.append("progress.json: study_mode must be deep / speedrun")
 
 
 def main():
