@@ -15,6 +15,8 @@ python3 ~/.claude/skills/study-mindmap/scripts/build_mindmap.py <study-dir>/know
 
 Output: `<study-dir>/mindmaps/chapter-XX.html` (or `book.html`). `open` it in the browser the first time; for subsequent color refreshes just tell the user (in Chinese) to refresh the tab.
 
+Node labels show only the knowledge point's short name — the build script auto-shortens long names (cuts at the first separator, caps length) and shows the full name on hover. Keep knowledge.json point `name` concise (≤ ~12 Chinese chars) so labels read cleanly; structural chapter/section titles stay as-is.
+
 ## Precondition: knowledge.json must exist
 
 This skill only renders — it does not split knowledge points. If knowledge.json is missing, build it first (contract in `~/.claude/skills/study-assistant/SKILL.md`, then run validate_workspace.py). When building the list, remember the map's mission: **the user revises the whole chapter from this picture** — every definition, formula, law, and method is its own leaf. A missing point is far worse than an extra one.

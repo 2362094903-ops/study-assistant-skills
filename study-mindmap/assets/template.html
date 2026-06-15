@@ -84,7 +84,7 @@ function nodeColor(d) {
 let uid = 0;
 function build(data, depth, parent) {
   const n = { id: uid++, data, depth, parent, collapsed: false, hit: false };
-  n.label = (data.importance === "高" ? "★ " : "") + data.name;
+  n.label = (data.importance === "高" ? "★ " : "") + (data.label || data.name);
   if (data.children && data.children.length)
     n.children = data.children.map(c => build(c, depth + 1, n));
   return n;

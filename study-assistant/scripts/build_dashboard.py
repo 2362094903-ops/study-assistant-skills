@@ -80,7 +80,12 @@ def trend_series(points, events):
 
 
 def weak_points(points):
-    weak = [p for p in points if p["importance"] == "高" and p["mastery"] <= 2 and p["status"] != "未学"]
+    # 只算"真正测过且得分低"的点：必须已测验/已检验且 mastery 1–2。
+    # mastery 0 表示还没测（哪怕已讲解），不算薄弱，否则刚讲完的点会被误列为回炉项。
+    weak = [p for p in points
+            if p["importance"] == "高"
+            and p["status"] in ("已测验", "已检验")
+            and 1 <= p["mastery"] <= 2]
     weak.sort(key=lambda p: (p["mastery"], p["id"]))
     return weak[:10]
 

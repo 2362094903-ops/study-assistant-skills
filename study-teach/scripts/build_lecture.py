@@ -41,8 +41,20 @@ each point is expected to carry:
       "method": "解题思维/套路：这类题怎么审、用什么公式、按什么步骤解",
 
       // ---- examples (deep 通常 1 道；speedrun 多道) ----
-      "example": {"problem": "题面", "solution": "完整解答"},
-      "examples": [{"problem": "...", "solution": "..."}],
+      // 每道例题都可交互作答，提交后批改再展开 solution。请按知识点选择最合适的题型，
+      // 一节里的例题尽量有变化，不要全是同一种。题型 type（默认 text）：
+      //   "single" 单选：options[] + answer=正确项下标(0=A)
+      //   "multi"  多选：options[] + answer=正确项下标数组 [0,2]
+      //   "judge"  判断：answer=true/false
+      //   "text"   填空/计算/简答：自由作答框；answer 选填=最终答案(字符串或可接受写法数组)，
+      //            填了就自动判最终答案✓/✗，不填则提交后揭示解答+自评
+      // problem 题面、solution 完整解答/解析 必填（所有题型，提交后展开）。
+      // Obsidian 版为静态：题面（选择题附选项列表）+ 折叠解答（含答案）。
+      "examples": [
+        {"type": "single", "problem": "下列哪项属于资本预算决策？", "options": ["延长应付账款账期", "新建一条生产线", "发行股票融资", "提高存货周转"], "answer": 1, "solution": "B。新建生产线是长期资产支出，属资本预算……"},
+        {"type": "judge", "problem": "股东权益 = 资产 + 负债。", "answer": false, "solution": "错误。股东权益 = 资产 − 负债……"},
+        {"type": "text", "problem": "U = XY，Pₓ=1，Pᵧ=2，I=40，求最优组合。", "answer": ["X=20,Y=10", "X=20，Y=10"], "solution": "由 MUₓ/Pₓ=MUᵧ/Pᵧ……得 X=20，Y=10。"}
+      ],
 
       // ---- both modes ----
       "pitfalls": "易错辨析",
@@ -151,6 +163,22 @@ def render_rich(text):
                   lambda m: html_mod.escape(math[int(m.group(1))], quote=False), out)
 
 
+def render_inline_rich(text):
+    """Inline-only rich render (bold/code + math), no block/list/table — for option labels."""
+    if not text:
+        return ""
+    math = []
+
+    def stash(m):
+        math.append(m.group(1))
+        return f"\x00M{len(math) - 1}\x00"
+
+    protected = MATH_RE.sub(stash, text)
+    out = _inline(html_mod.escape(protected, quote=False))
+    return re.sub(r"\x00M(\d+)\x00",
+                  lambda m: html_mod.escape(math[int(m.group(1))], quote=False), out)
+
+
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
@@ -179,8 +207,31 @@ def validate(data):
         if not exs:
             errs.append(f"{tag}: needs at least one example (example or examples[])")
         for j, ex in enumerate(exs):
+            etag = f"{tag}.examples[{j}]"
             if not (ex.get("problem") and ex.get("solution")):
-                errs.append(f"{tag}.examples[{j}]: problem and solution are required")
+                errs.append(f"{etag}: problem and solution are required")
+            etype = ex.get("type", "text")
+            a = ex.get("answer")
+            if etype not in ("single", "multi", "judge", "text"):
+                errs.append(f"{etag}: type must be single / multi / judge / text")
+            elif etype in ("single", "multi"):
+                opts = ex.get("options")
+                if not isinstance(opts, list) or len(opts) < 2:
+                    errs.append(f"{etag}: {etype} needs an options list")
+                elif etype == "single":
+                    if not isinstance(a, int) or not (0 <= a < len(opts)):
+                        errs.append(f"{etag}: single answer must be a valid option index")
+                else:
+                    if (not isinstance(a, list) or not a
+                            or not all(isinstance(x, int) and 0 <= x < len(opts) for x in a)):
+                        errs.append(f"{etag}: multi answer must be a list of valid option indices")
+            elif etype == "judge":
+                if not isinstance(a, bool):
+                    errs.append(f"{etag}: judge answer must be true or false")
+            else:  # text
+                if a is not None and not (isinstance(a, str)
+                                          or (isinstance(a, list) and all(isinstance(x, str) for x in a))):
+                    errs.append(f"{etag}: text answer must be a string or a list of strings")
         if mode == "deep" and not p.get("formal"):
             errs.append(f"{tag}: deep mode requires 'formal' (严谨表述)")
         if mode == "speedrun" and not p.get("method"):
@@ -246,12 +297,30 @@ def render_markdown(data):
                 lines.append(quote_block("**解题思维**\n" + p["method"], "example"))
                 lines.append("")
         exs = example_list(p)
+        TYPE_LABEL = {"single": "单选", "multi": "多选", "judge": "判断", "text": ""}
         for n, ex in enumerate(exs, 1):
-            label = f"例题{n}" if len(exs) > 1 else "例题"
-            lines.append(f"**{label}**　{ex['problem']}")
+            base = f"例题{n}" if len(exs) > 1 else "例题"
+            etype = ex.get("type", "text")
+            tlabel = TYPE_LABEL.get(etype, "")
+            head = f"{base}（{tlabel}）" if tlabel else base
+            lines.append(f"**{head}**　{ex['problem']}")
             lines.append("")
-            sol = "\n".join("> " + l for l in ex["solution"].strip().splitlines())
-            lines.append(f"> [!success]- 参考解答（{label}，先自己做，再点开）")
+            opts = ex.get("options") or []
+            if etype in ("single", "multi") and opts:
+                for i, o in enumerate(opts):
+                    lines.append(f"- {chr(65 + i)}. {o}")
+                lines.append("")
+            if etype == "single":
+                ans_line = f"**答案：{chr(65 + ex['answer'])}**\n"
+            elif etype == "multi":
+                ans_line = f"**答案：{'、'.join(chr(65 + i) for i in sorted(ex['answer']))}**\n"
+            elif etype == "judge":
+                ans_line = f"**答案：{'正确' if ex.get('answer') else '错误'}**\n"
+            else:
+                ans_line = ""
+            sol_text = ans_line + ex["solution"].strip()
+            sol = "\n".join("> " + l for l in sol_text.splitlines())
+            lines.append(f"> [!success]- 参考解答（{base}，先自己做，再点开）")
             lines.append(sol)
             lines.append("")
         if p.get("pitfalls"):
@@ -323,6 +392,32 @@ window.MathJax = {{ tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']
   details {{ border: 1px solid #d1d5db; border-radius: 8px; padding: 10px 14px; margin: 10px 0; background: #fafafa; }}
   details summary {{ cursor: pointer; font-weight: 600; font-size: 14px; color: #374151; }}
   details .rich {{ margin-top: 10px; }}
+  .ex {{ border-top: 1px dashed #e5e7eb; margin-top: 14px; padding-top: 8px; }}
+  .ex-in {{ width: 100%; box-sizing: border-box; min-height: 88px; padding: 8px 10px; font: inherit; font-size: 14px;
+            border: 1.5px solid #d1d5db; border-radius: 8px; resize: vertical; }}
+  .ex-in:focus {{ outline: none; border-color: #3b82f6; }}
+  .ex-go {{ margin-top: 8px; padding: 6px 16px; font-size: 13px; border: none; border-radius: 8px; background: #2563eb; color: #fff; cursor: pointer; }}
+  .ex-go:disabled {{ background: #93c5fd; cursor: default; }}
+  .ex-opts {{ margin: 8px 0; }}
+  .ex-opts.judge {{ display: flex; gap: 10px; }}
+  .ex-opt {{ display: block; width: 100%; text-align: left; margin: 6px 0; padding: 8px 12px; font-size: 14px;
+             line-height: 1.6; border: 1.5px solid #d1d5db; border-radius: 8px; background: #fff; cursor: pointer; }}
+  .ex-opts.judge .ex-opt {{ flex: 1; text-align: center; font-weight: 600; }}
+  .ex-opt:hover:not(:disabled) {{ border-color: #3b82f6; background: #f8fafc; }}
+  .ex-opt:disabled {{ cursor: default; }}
+  .ex-opt.picked {{ border-color: #2563eb; background: #eff6ff; }}
+  .ex-opt.right {{ border-color: #16a34a; background: #f0fdf4; }}
+  .ex-opt.wrong {{ border-color: #ef4444; background: #fef2f2; }}
+  .ex-opt.missed {{ border-color: #16a34a; border-style: dashed; background: #f0fdf4; }}
+  .ex-opt.dim {{ opacity: .55; }}
+  .ex-vd {{ display: none; margin-top: 10px; padding: 8px 12px; border-radius: 8px; font-size: 14px; }}
+  .ex-vd.ok {{ background: #f0fdf4; border: 1px solid #86efac; color: #14532d; }}
+  .ex-vd.miss {{ background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; }}
+  .ex-sol {{ display: none; margin-top: 10px; border: 1px solid #d1d5db; border-radius: 8px; padding: 10px 14px; background: #fafafa; }}
+  .ex-sol-h {{ font-weight: 600; font-size: 14px; color: #374151; margin-bottom: 6px; }}
+  .ex-sg {{ display: none; margin-top: 10px; font-size: 13px; color: #6b7280; }}
+  .ex-sg button {{ margin-left: 6px; padding: 4px 12px; border-radius: 99px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; font-size: 13px; }}
+  .ex-sg button.sel {{ background: #2563eb; color: #fff; border-color: #2563eb; }}
   .donebtn {{ margin-top: 10px; font-size: 13px; padding: 5px 14px; border-radius: 99px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; }}
   .donebtn.on {{ background: #dcfce7; border-color: #16a34a; color: #14532d; }}
   .links {{ font-size: 13px; color: #6b7280; font-style: italic; }}
@@ -333,7 +428,7 @@ window.MathJax = {{ tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']
 <nav id="toc"><h2>{section}</h2>{toc}</nav>
 <main>
 <h1>{section}<span class="modetag">{mode_label}</span></h1>
-<div class="meta">《{textbook}》{chapter} ｜ {n} 个知识点 ｜ 生成于 {date} ｜ 例题先自己做，再点开解答</div>
+<div class="meta">《{textbook}》{chapter} ｜ {n} 个知识点 ｜ 生成于 {date} ｜ 例题请先作答，提交后批改并展开解答</div>
 <div id="mjwarn">⚠️ 离线状态：公式渲染（MathJax）加载失败，以下公式显示为 LaTeX 源码，含义不受影响。</div>
 """
 
@@ -356,6 +451,77 @@ document.querySelectorAll(".donebtn").forEach(b => b.addEventListener("click", (
   refresh();
 }));
 refresh();
+
+// Interactive examples: attempt -> grade -> reveal solution. Types: single / multi / judge / text.
+function normAns(s) {
+  return (s || "").replace(/\\s+/g, "")
+    .replace(/，/g, ",").replace(/；/g, ";").replace(/：/g, ":")
+    .replace(/[（]/g, "(").replace(/[）]/g, ")").replace(/＝/g, "=").toLowerCase();
+}
+const L = i => String.fromCharCode(65 + i);
+document.querySelectorAll(".ex").forEach(ex => {
+  const type = ex.dataset.extype || "text";
+  const vd = ex.querySelector(".ex-vd"), sol = ex.querySelector(".ex-sol"), sg = ex.querySelector(".ex-sg");
+  let ans = null;
+  try { ans = JSON.parse(ex.dataset.ans || "null"); } catch (e) {}
+  const verdict = (ok, msg) => { vd.style.display = "block"; vd.className = "ex-vd " + (ok ? "ok" : "miss"); vd.textContent = msg; };
+  const reveal = () => { sol.style.display = "block"; if (sg) sg.style.display = "block"; };
+
+  if (type === "single" || type === "judge") {
+    const opts = [...ex.querySelectorAll(".ex-opt")];
+    opts.forEach(b => b.addEventListener("click", () => {
+      if (opts.some(o => o.disabled)) return;
+      const pick = +b.dataset.i, ok = pick === ans;
+      opts.forEach(o => {
+        o.disabled = true;
+        const i = +o.dataset.i;
+        o.classList.add(i === ans ? "right" : (i === pick ? "wrong" : "dim"));
+      });
+      const correctTxt = type === "judge" ? (ans === 0 ? "正确" : "错误") : L(ans);
+      verdict(ok, ok ? "✓ 回答正确" : "✗ 回答错误（正确答案：" + correctTxt + "）");
+      reveal();
+    }));
+  } else if (type === "multi") {
+    const opts = [...ex.querySelectorAll(".ex-opt")], go = ex.querySelector(".ex-go"), sel = new Set();
+    opts.forEach(b => b.addEventListener("click", () => {
+      if (go.disabled) return;
+      const i = +b.dataset.i;
+      if (sel.has(i)) { sel.delete(i); b.classList.remove("picked"); }
+      else { sel.add(i); b.classList.add("picked"); }
+    }));
+    go.addEventListener("click", () => {
+      const want = new Set(ans || []), picks = [...sel];
+      const wrong = picks.some(i => !want.has(i)), allRight = picks.length === want.size && !wrong;
+      opts.forEach(o => {
+        o.disabled = true; o.classList.remove("picked");
+        const i = +o.dataset.i, isAns = want.has(i), isPick = sel.has(i);
+        o.classList.add(isAns && isPick ? "right" : (!isAns && isPick ? "wrong" : (isAns ? "missed" : "dim")));
+      });
+      go.disabled = true;
+      verdict(allRight, allRight ? "✓ 全部正确" : "✗ 未全对（正确答案：" + [...want].sort((a, b) => a - b).map(L).join("、") + "）");
+      reveal();
+    });
+  } else {  // text
+    const go = ex.querySelector(".ex-go"), inp = ex.querySelector(".ex-in");
+    const list = Array.isArray(ans) ? ans : (ans ? [ans] : []);
+    go.addEventListener("click", () => {
+      const user = normAns(inp.value);
+      if (list.length && user) {
+        const hit = list.some(a => normAns(a) === user);
+        verdict(hit, hit
+          ? "✓ 最终答案正确（参考：" + list[0] + "）。展开解答核对步骤。"
+          : "✗ 与参考最终答案不一致（参考：" + list[0] + "）。对照解答看看哪一步出了问题。");
+      } else if (list.length && !user) {
+        verdict(false, "你还没作答。参考最终答案：" + list[0]);
+      }
+      go.disabled = true; inp.readOnly = true; reveal();
+    });
+  }
+  if (sg) sg.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+    sg.querySelectorAll("button").forEach(x => x.classList.remove("sel"));
+    b.classList.add("sel");
+  }));
+});
 </script>
 </body>
 </html>
@@ -403,12 +569,48 @@ def render_html(data):
                 out.append(f'<div class="method"><span class="lead">🧭 解题思维</span>'
                            f'<div class="rich">{render_rich(p["method"])}</div></div>')
         exs = example_list(p)
+        TYPE_LABEL = {"single": "单选", "multi": "多选", "judge": "判断", "text": ""}
         for n, ex in enumerate(exs, 1):
-            label = f"例题{n}" if len(exs) > 1 else "例题"
-            out.append(f'<div class="field"><span class="lead">{label}</span>'
+            base = f"例题{n}" if len(exs) > 1 else "例题"
+            etype = ex.get("type", "text")
+            tlabel = TYPE_LABEL.get(etype, "")
+            head = f"{base}（{tlabel}）" if tlabel else base
+            if etype == "single":
+                ans_data = json.dumps(ex.get("answer"))
+            elif etype == "judge":
+                ans_data = json.dumps(0 if ex.get("answer") is True else 1)
+            elif etype == "multi":
+                ans_data = json.dumps(sorted(ex.get("answer") or []))
+            else:
+                a = ex.get("answer")
+                ans_data = json.dumps(a if isinstance(a, list) else ([a] if a else []), ensure_ascii=False)
+            out.append(f'<div class="ex" data-extype="{etype}" data-ans="{html_mod.escape(ans_data, quote=True)}">')
+            out.append(f'<div class="field"><span class="lead">{head}</span>'
                        f'<div class="rich">{render_rich(ex["problem"])}</div></div>')
-            out.append(f'<details><summary>参考解答（{label}，先自己做，再点开）</summary>'
-                       f'<div class="rich">{render_rich(ex["solution"])}</div></details>')
+            if etype in ("single", "multi"):
+                out.append('<div class="ex-opts">')
+                for i, o in enumerate(ex.get("options") or []):
+                    out.append(f'<button class="ex-opt" data-i="{i}">{chr(65 + i)}. {render_inline_rich(o)}</button>')
+                out.append('</div>')
+                if etype == "multi":
+                    out.append('<div class="hint" style="font-size:12px;color:#6b7280">多选：选齐后点确认</div>'
+                               '<div><button class="ex-go">确认作答</button></div>')
+            elif etype == "judge":
+                out.append('<div class="ex-opts judge">'
+                           '<button class="ex-opt" data-i="0">正确</button>'
+                           '<button class="ex-opt" data-i="1">错误</button></div>')
+            else:
+                out.append('<textarea class="ex-in" placeholder="先自己作答，写出关键步骤或最终答案…"></textarea>')
+                out.append('<div><button class="ex-go">提交批改</button></div>')
+            out.append('<div class="ex-vd"></div>')
+            out.append(f'<div class="ex-sol"><div class="ex-sol-h">📖 参考解答（{base}）</div>'
+                       f'<div class="rich">{render_rich(ex["solution"])}</div></div>')
+            if etype == "text":
+                out.append('<div class="ex-sg">对照参考给自己打分：'
+                           '<button data-g="right">完全正确</button>'
+                           '<button data-g="part">部分正确</button>'
+                           '<button data-g="no">还不太会</button></div>')
+            out.append('</div>')
         if p.get("pitfalls"):
             out.append(f'<div class="box warn">⚠️ <b>易错辨析</b> <span class="rich">{render_rich(p["pitfalls"])}</span></div>')
         if p.get("memory_hook"):

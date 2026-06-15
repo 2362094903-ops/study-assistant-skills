@@ -13,14 +13,29 @@ import argparse
 import datetime
 import json
 import pathlib
+import re
 import sys
 
 TEMPLATE = pathlib.Path(__file__).resolve().parent.parent / "assets" / "template.html"
 
+# 节点上只显示知识点短名；完整描述在悬停提示里。优先用 knowledge.json 的 short 字段，
+# 否则从 name 自动精简：取第一个分隔符之前的核心词，并限制长度（兜底处理过长/带描述的旧 name）。
+_SEP_RE = re.compile(r"[：:；;，,。（(、]")
+
+
+def short_label(name, max_len=16):
+    name = (name or "").strip()
+    m = _SEP_RE.search(name)
+    label = (name[:m.start()] if m else name).strip()
+    if not label or len(label) > max_len:
+        label = name[:max_len]
+    return label
+
 
 def point_node(p):
     return {
-        "name": p["name"],
+        "name": p["name"],                       # 完整名称（悬停显示）
+        "label": p.get("short") or short_label(p["name"]),  # 节点上显示的短名
         "id": p.get("id", ""),
         "importance": p.get("importance", "中"),
         "status": p.get("status", "未学"),

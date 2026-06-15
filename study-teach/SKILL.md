@@ -42,7 +42,7 @@ Long generations degrade toward the end. One section (3.1, 3.2, ...) at a time; 
 
    **speedrun mode**: `key_point` (1–3 sentences nailing the exam point), `method` (REQUIRED — 解题思维: how to recognize this question type, which formula, what steps, what traps to watch), and `examples` (an array of 2–3 worked problems; emphasize the solving routine, not theory).
 
-   **Examples** (both modes): each is `{problem, solution}` with a complete solution — it renders click-to-expand, so the learner can self-check.
+   **Examples** (both modes): each is `{problem, solution, answer?}`. `solution` is the complete worked solution. `answer` (optional) is the problem's **final answer** — a string, or a list of acceptable forms (e.g. `["50", "50万元"]`). In the HTML lecture each example is **interactive**: the learner types an attempt and submits; if `answer` is present the page auto-checks it (✓/✗) and then reveals the full solution + a self-grade; if `answer` is absent it reveals the solution + self-grade on submit. So provide `answer` for calculation/short-answer problems (definite final answer) and omit it for open conceptual ones. Obsidian Markdown stays static (problem + foldable solution).
 
    **Markdown is fine in any text field** — `**bold**`, `-`/`1.` lists, and `| a | b |` tables all render correctly in both HTML and Obsidian. Keep math in LaTeX `$...$` / `$$...$$`.
 3. Render (the script validates the JSON and fails loudly on missing/mode-required fields):

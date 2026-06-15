@@ -65,9 +65,10 @@ Each textbook gets a workspace next to the textbook file, named `<textbook-filen
 }
 ```
 
+- `name`: a **concise label**, ideally ≤ 12 Chinese characters (e.g. "边际效用递减规律", "消费者均衡") — NOT a full sentence. It is the point's identity shown in the mind map, digest, and reports; descriptive detail belongs in the lecture, not the name. The mind map auto-shortens overly long names at the first separator, but write them short to begin with.
 - `importance`: exactly one of 高 / 中 / 低 (judge by exam frequency; revise after an exam-style profile exists)
 - `status`: exactly one of 未学 → 已讲解 → 已测验 → 已检验 (forward only)
-- `mastery`: number 0–5. 0 = not studied; 1–2 weak; 3 adequate; 4 strong; 5 mastered (only Feynman can award 5)
+- `mastery`: number 0–5. 0 = not studied/not yet tested; 1–2 weak; 3 adequate; 4 strong; 5 mastered (only Feynman can award 5). Note: a 已讲解 point keeps mastery 0 until a quiz/Feynman scores it — 0 means "not yet assessed", never "weak".
 - `note`: one-line reminder of the weak spot (e.g. "混淆替代效应方向"); use `""` when empty
 - `id` format: digits joined by dots, e.g. `3.1.2`, unique across the file
 
