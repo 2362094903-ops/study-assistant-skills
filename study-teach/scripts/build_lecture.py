@@ -4,8 +4,8 @@
 Why JSON as the source: the model writes structured content once, and this script
 guarantees identical, well-formed output regardless of which model produced it.
 The HTML renderer understands a controlled Markdown subset (bold, lists, tables,
-inline code) so that Markdown the model writes inside fields renders cleanly
-instead of leaking raw `**` / `-` / `|` into the page.
+figures/images, inline code) so that Markdown the model writes inside fields
+renders cleanly instead of leaking raw `**` / `-` / `|` into the page.
 
 Usage:
   python3 build_lecture.py <lecture.json>                     # both formats
@@ -59,6 +59,14 @@ each point is expected to carry:
       // ---- both modes ----
       "pitfalls": "易错辨析",
       "memory_hook": "记忆抓手",
+      "figures": [
+        {
+          "path": "assets/3.5-efn-growth.png",
+          "caption": "销售增长率越高，EFN 通常越大",
+          "source": "Python/matplotlib: EFN = (A/S − L/S)ΔS − PM×S1×b",
+          "alt": "EFN 随销售增长率上升的函数图像"
+        }
+      ],
       "links": ["1.1.2", "1.1.3"]
     }
   ]
@@ -89,18 +97,54 @@ def _inline(escaped):
     return escaped
 
 
+def _is_table_sep(line):
+    cells = [c.strip() for c in line.strip().strip("|").split("|")]
+    seps = [c for c in cells if c]
+    return bool(seps) and all(re.match(r"^:?-{3,}:?$", c) for c in seps)
+
+
+def _is_table_start(lines, i):
+    return (
+        i + 1 < len(lines)
+        and "|" in lines[i]
+        and "|" in lines[i + 1]
+        and _is_table_sep(lines[i + 1])
+    )
+
+
+def _split_table_row(row):
+    cells, cur, esc_pipe = [], [], False
+    text = row.strip().strip("|")
+    for ch in text:
+        if ch == "\\" and not esc_pipe:
+            esc_pipe = True
+            continue
+        if ch == "|" and not esc_pipe:
+            cells.append("".join(cur).strip())
+            cur = []
+            continue
+        if esc_pipe:
+            cur.append(ch)
+            esc_pipe = False
+            continue
+        cur.append(ch)
+    cells.append("".join(cur).strip())
+    return cells
+
+
 def _render_table(lines):
-    def cells(row):
-        return [c.strip() for c in row.strip().strip("|").split("|")]
-    header = cells(lines[0])
-    body = [cells(r) for r in lines[2:] if r.strip()]
-    out = ['<table class="lec-table"><thead><tr>']
+    header = _split_table_row(lines[0])
+    body = [_split_table_row(r) for r in lines[2:] if r.strip() and "|" in r]
+    width = max([len(header)] + [len(r) for r in body] + [1])
+    header += [""] * (width - len(header))
+    out = ['<div class="table-wrap"><table class="lec-table"><thead><tr>']
     out += [f"<th>{_inline(html_mod.escape(c, quote=False))}</th>" for c in header]
     out.append("</tr></thead><tbody>")
     for r in body:
+        r += [""] * (width - len(r))
         out.append("<tr>" + "".join(
             f"<td>{_inline(html_mod.escape(c, quote=False))}</td>" for c in r) + "</tr>")
-    out.append("</tbody></table>")
+    out.append("</tbody></table></div>")
     return "".join(out)
 
 
@@ -136,14 +180,33 @@ def _render_list(lines):
 
 def _render_block(block):
     lines = block.split("\n")
-    if (len(lines) >= 2 and all("|" in l for l in lines[:2])
-            and re.match(r"^\s*\|?[\s:|-]+\|?\s*$", lines[1]) and "-" in lines[1]):
-        return _render_table(lines)
-    list_lines = [l for l in lines if l.strip()]
-    if list_lines and all(re.match(r"^\s*([-*]|\d+\.)\s+", l) for l in list_lines):
-        return _render_list(lines)
-    body = "<br>".join(_inline(html_mod.escape(l, quote=False)) for l in lines)
-    return f"<p>{body}</p>"
+    chunks, buf, i = [], [], 0
+
+    def flush_buf():
+        if not buf:
+            return
+        list_lines = [l for l in buf if l.strip()]
+        if list_lines and all(re.match(r"^\s*([-*]|\d+\.)\s+", l) for l in list_lines):
+            chunks.append(_render_list(buf))
+        else:
+            body = "<br>".join(_inline(html_mod.escape(l, quote=False)) for l in buf)
+            chunks.append(f"<p>{body}</p>")
+        buf.clear()
+
+    while i < len(lines):
+        if _is_table_start(lines, i):
+            flush_buf()
+            table_lines = [lines[i], lines[i + 1]]
+            i += 2
+            while i < len(lines) and "|" in lines[i] and lines[i].strip():
+                table_lines.append(lines[i])
+                i += 1
+            chunks.append(_render_table(table_lines))
+            continue
+        buf.append(lines[i])
+        i += 1
+    flush_buf()
+    return "\n".join(chunks)
 
 
 def render_rich(text):
@@ -187,6 +250,15 @@ def example_list(p):
         return p["examples"]
     if p.get("example"):
         return [p["example"]]
+    return []
+
+
+def figure_list(p):
+    figures = p.get("figures") or p.get("images") or []
+    if isinstance(figures, dict):
+        return [figures]
+    if isinstance(figures, list):
+        return figures
     return []
 
 
@@ -236,6 +308,15 @@ def validate(data):
             errs.append(f"{tag}: deep mode requires 'formal' (严谨表述)")
         if mode == "speedrun" and not p.get("method"):
             errs.append(f"{tag}: speedrun mode requires 'method' (解题思维)")
+        for j, fig in enumerate(figure_list(p)):
+            ftag = f"{tag}.figures[{j}]"
+            if not isinstance(fig, dict):
+                errs.append(f"{ftag}: must be an object")
+                continue
+            if not fig.get("path"):
+                errs.append(f"{ftag}: path is required")
+            if not fig.get("caption"):
+                errs.append(f"{ftag}: caption is required")
     if not (data.get("points")):
         errs.append("points is empty")
     return errs
@@ -251,6 +332,20 @@ def sanitize(name):
 def quote_block(text, callout, foldable=False):
     body = "\n".join("> " + line for line in text.strip().splitlines())
     return f"> [!{callout}]{'-' if foldable else ''}\n{body}"
+
+
+def render_markdown_figures(figures):
+    lines = []
+    for fig in figures:
+        path = str(fig.get("path", "")).replace("\\", "/")
+        alt = fig.get("alt") or fig.get("caption") or "讲解配图"
+        lines.append(f"![{alt}]({path})")
+        if fig.get("caption"):
+            lines.append(f"*图：{fig['caption']}*")
+        if fig.get("source"):
+            lines.append(f"> [!note]\n> {fig['source']}")
+        lines.append("")
+    return lines
 
 
 def render_markdown(data):
@@ -296,6 +391,9 @@ def render_markdown(data):
             if p.get("method"):
                 lines.append(quote_block("**解题思维**\n" + p["method"], "example"))
                 lines.append("")
+        figs = figure_list(p)
+        if figs:
+            lines.extend(render_markdown_figures(figs))
         exs = example_list(p)
         TYPE_LABEL = {"single": "单选", "multi": "多选", "judge": "判断", "text": ""}
         for n, ex in enumerate(exs, 1):
@@ -373,7 +471,7 @@ window.MathJax = {{ tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']
   .box.info {{ background: #eff6ff; border: 1px solid #bfdbfe; }}
   .box.warn {{ background: #fffbeb; border: 1px solid #fde68a; }}
   .box.tip {{ background: #f0fdf4; border: 1px solid #bbf7d0; }}
-  .box .rich {{ display:inline; }}
+  .box .rich {{ display:block; margin-top: 4px; }}
   .field {{ margin: 12px 0; }}
   .field .lead {{ color: #1d4ed8; font-weight: 600; display: block; margin-bottom: 4px; }}
   .excerpt {{ background: #faf5ff; border-left: 3px solid #a855f7; padding: 10px 14px; margin: 10px 0;
@@ -386,9 +484,17 @@ window.MathJax = {{ tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']
   .rich ul, .rich ol {{ margin: 6px 0; padding-left: 22px; line-height: 1.9; }}
   .rich li {{ margin: 3px 0; }}
   .rich code {{ background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: .9em; }}
-  table.lec-table {{ border-collapse: collapse; margin: 10px 0; font-size: 14px; width: 100%; }}
-  table.lec-table th, table.lec-table td {{ border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; vertical-align: top; }}
-  table.lec-table th {{ background: #f3f4f6; }}
+  .table-wrap {{ display: block; width: 100%; overflow-x: auto; margin: 12px 0; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }}
+  table.lec-table {{ border-collapse: collapse; border-spacing: 0; margin: 0; font-size: 14px; width: 100%; min-width: max-content; }}
+  table.lec-table th, table.lec-table td {{ border: 1px solid #cbd5e1; padding: 7px 10px; text-align: left; vertical-align: top; background-clip: padding-box; }}
+  table.lec-table th {{ background: #f1f5f9; font-weight: 700; }}
+  table.lec-table tr:last-child td {{ border-bottom: 0; }}
+  table.lec-table tr td:first-child, table.lec-table tr th:first-child {{ border-left: 0; }}
+  table.lec-table tr td:last-child, table.lec-table tr th:last-child {{ border-right: 0; }}
+  .figure {{ margin: 14px 0; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; overflow: hidden; }}
+  .figure img {{ display: block; width: 100%; max-height: 460px; object-fit: contain; background: #fff; }}
+  .figure figcaption {{ padding: 8px 12px; font-size: 13px; color: #4b5563; border-top: 1px solid #e5e7eb; line-height: 1.6; }}
+  .figure .source {{ display: block; color: #6b7280; margin-top: 2px; }}
   details {{ border: 1px solid #d1d5db; border-radius: 8px; padding: 10px 14px; margin: 10px 0; background: #fafafa; }}
   details summary {{ cursor: pointer; font-weight: 600; font-size: 14px; color: #374151; }}
   details .rich {{ margin-top: 10px; }}
@@ -536,6 +642,21 @@ def field(lead, text):
     return f'<div class="field"><span class="lead">{lead}</span><div class="rich">{render_rich(text)}</div></div>'
 
 
+def render_html_figures(figures):
+    out = []
+    for fig in figures:
+        path = html_mod.escape(str(fig.get("path", "")), quote=True)
+        alt = html_mod.escape(str(fig.get("alt") or fig.get("caption") or "讲解配图"), quote=True)
+        caption = esc(fig.get("caption"))
+        source = esc(fig.get("source"))
+        source_html = f'<span class="source">{source}</span>' if source else ""
+        out.append(
+            f'<figure class="figure"><img src="{path}" alt="{alt}" loading="lazy">'
+            f'<figcaption>{caption}{source_html}</figcaption></figure>'
+        )
+    return "".join(out)
+
+
 def render_html(data):
     mode = data["mode"]
     mode_label = "深入讲解" if mode == "deep" else "考试速通"
@@ -553,7 +674,7 @@ def render_html(data):
         out.append(f'<section class="point" id="p-{esc(p["id"])}">')
         out.append(f'<h2>{esc(p["id"])} {esc(p["name"])}{star}</h2>')
         if p.get("exam_focus"):
-            out.append(f'<div class="box info">📌 <span class="rich">{render_rich(p["exam_focus"])}</span></div>')
+            out.append(f'<div class="box info">📌 <div class="rich">{render_rich(p["exam_focus"])}</div></div>')
         if mode == "deep":
             if p.get("textbook_excerpt"):
                 out.append(f'<div class="excerpt"><span class="lead">📖 教材原文</span>'
@@ -568,6 +689,8 @@ def render_html(data):
             if p.get("method"):
                 out.append(f'<div class="method"><span class="lead">🧭 解题思维</span>'
                            f'<div class="rich">{render_rich(p["method"])}</div></div>')
+        if figure_list(p):
+            out.append(render_html_figures(figure_list(p)))
         exs = example_list(p)
         TYPE_LABEL = {"single": "单选", "multi": "多选", "judge": "判断", "text": ""}
         for n, ex in enumerate(exs, 1):
@@ -612,9 +735,9 @@ def render_html(data):
                            '<button data-g="no">还不太会</button></div>')
             out.append('</div>')
         if p.get("pitfalls"):
-            out.append(f'<div class="box warn">⚠️ <b>易错辨析</b> <span class="rich">{render_rich(p["pitfalls"])}</span></div>')
+            out.append(f'<div class="box warn">⚠️ <b>易错辨析</b> <div class="rich">{render_rich(p["pitfalls"])}</div></div>')
         if p.get("memory_hook"):
-            out.append(f'<div class="box tip">💡 <b>记忆抓手</b> <span class="rich">{render_rich(p["memory_hook"])}</span></div>')
+            out.append(f'<div class="box tip">💡 <b>记忆抓手</b> <div class="rich">{render_rich(p["memory_hook"])}</div></div>')
         if p.get("links"):
             out.append(f'<div class="links">关联知识点：{esc("、".join(p["links"]))}</div>')
         out.append(f'<button class="donebtn" data-id="{esc(p["id"])}"></button>')

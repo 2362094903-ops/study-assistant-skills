@@ -1,7 +1,7 @@
 ---
 name: study-teach
 description: >
-  Lecture & explanation sub-skill (orchestrated by study-assistant; also usable standalone). Use when the learner wants a chapter/section taught ("开始讲解" "讲一下第三章" "生成讲义" "继续下一节"), asks a follow-up question about studied content, or says they didn't understand ("给我讲讲X" "没听懂，重讲一遍"). Generates complete section-by-section lecture notes in two selectable modes — 深入讲解 (deep understanding, leads with textbook原文) or 考试速通 (exam speed-run, 解题思维 + multiple examples) — as Obsidian Markdown and/or interactive HTML with rendered math; conversation is reserved for targeted Q&A and re-teaching.
+  Lecture & explanation sub-skill (orchestrated by study-assistant; also usable standalone). Use when the learner wants a chapter/section taught ("开始讲解" "讲一下第三章" "生成讲义" "继续下一节"), asks a follow-up question about studied content, or says they didn't understand ("给我讲讲X" "没听懂，重讲一遍"). Generates complete section-by-section lecture notes in two selectable modes — 深入讲解 (deep understanding, leads with textbook原文) or 考试速通 (exam speed-run, 解题思维 + multiple examples) — as Obsidian Markdown and/or interactive HTML with rendered math, robust Markdown tables, and generated function-graph figures when the source teaches with curves; conversation is reserved for targeted Q&A and re-teaching.
 ---
 
 # Teaching: Lecture Notes + Q&A
@@ -36,7 +36,7 @@ Long generations degrade toward the end. One section (3.1, 3.2, ...) at a time; 
 1. Read the section's source text in `textbook/` — lectures must stay faithful to the textbook, exams grade against it. Check `exam-style.md` if present; `exam_focus` fields must cite it.
 2. Write the lecture as JSON to `lessons/chapter-XX/<section>.json` with `"mode": "deep"|"speedrun"`, schema documented at the top of `~/.claude/skills/study-teach/scripts/build_lecture.py`. Every point of this section in knowledge.json must appear, with the same ids. Fields by mode:
 
-   **Both modes**: `exam_focus` (importance + question types, cite exam-style.md when present), `pitfalls`, `memory_hook` (mnemonic/framework; humanities: a 3–5 bullet recitation version), `links`.
+   **Both modes**: `exam_focus` (importance + question types, cite exam-style.md when present), `pitfalls`, `memory_hook` (mnemonic/framework; humanities: a 3–5 bullet recitation version), optional `figures`, `links`.
 
    **deep mode**: `textbook_excerpt` (教材关键原文 — quote the source verbatim when the extracted `textbook/` text is clean; paraphrase the core wording when it is scanned/messy), `intuition` (analogy + where it breaks), `formal` (REQUIRED — textbook-grade statement, LaTeX for every formula, every symbol explained, full derivation/reasoning; this is where depth lives — be thorough, ~500–1200 chars for core points). One `example` is usually enough.
 
@@ -44,7 +44,32 @@ Long generations degrade toward the end. One section (3.1, 3.2, ...) at a time; 
 
    **Examples** (both modes): each is `{problem, solution, answer?}`. `solution` is the complete worked solution. `answer` (optional) is the problem's **final answer** — a string, or a list of acceptable forms (e.g. `["50", "50万元"]`). In the HTML lecture each example is **interactive**: the learner types an attempt and submits; if `answer` is present the page auto-checks it (✓/✗) and then reveals the full solution + a self-grade; if `answer` is absent it reveals the solution + self-grade on submit. So provide `answer` for calculation/short-answer problems (definite final answer) and omit it for open conceptual ones. Obsidian Markdown stays static (problem + foldable solution).
 
-   **Markdown is fine in any text field** — `**bold**`, `-`/`1.` lists, and `| a | b |` tables all render correctly in both HTML and Obsidian. Keep math in LaTeX `$...$` / `$$...$$`.
+   **Markdown is fine in any text field** — `**bold**`, `-`/`1.` lists, and standard Markdown tables render correctly in both HTML and Obsidian. Keep math in LaTeX `$...$` / `$$...$$`.
+
+   **Tables**: when the source contains financial statements, ratio summaries, formula comparisons, or step-by-step computation grids, write them as normal Markdown tables with a separator row (`|---|---|`). Do not simulate tables with spaces, tabs, ASCII boxes, or screenshots. The HTML renderer gives tables visible borders and horizontal scrolling, so use real tables whenever comparison is the point.
+
+   **Function graphs / curve explanations**: if the textbook or courseware explains a concept through a function image, curve, coordinate plot, slope, intersection, convexity/concavity, or comparative statics, the lecture must include a generated figure rather than text-only explanation.
+   - Prefer Python/matplotlib via the bundled helper:
+     ```bash
+     python3 ~/.claude/skills/study-teach/scripts/plot_function.py \
+       --curve "低增长情形=0.08*x" --curve "高增长情形=0.16*x" \
+       --x-min 0 --x-max 0.3 --xlabel "销售增长率" --ylabel "外部融资需求" \
+       --title "增长率与外部融资需求" \
+       -o <study-dir>/lessons/chapter-XX/assets/<section>-<point>-curve.png
+     ```
+   - MATLAB is also acceptable when the user's environment already has it and the graph is easier to express there; still save a PNG under the same `assets/` folder.
+   - Include the figure in the point JSON:
+     ```json
+     "figures": [
+       {
+         "path": "assets/3.5-efn-growth.png",
+         "caption": "销售增长率越高，EFN 通常越大；斜率由资产需求、自发负债和留存收益共同决定。",
+         "source": "Python/matplotlib；根据教材 EFN 公式绘制",
+         "alt": "EFN 随销售增长率上升的函数图像"
+       }
+     ]
+     ```
+   - In the surrounding explanation, explicitly teach the graph: axes mean什么、曲线/斜率/交点说明什么、考试中如何从图转成公式或判断题结论。Do not add decorative figures that are not used in the explanation.
 3. Render (the script validates the JSON and fails loudly on missing/mode-required fields):
 
 ```bash
