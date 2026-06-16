@@ -7,7 +7,7 @@ Bank file: <study-dir>/question-bank.json
 
 Usage:
   python3 bank.py <study-dir> add <quiz.json>          # ingest a quiz's questions (dedup by stem hash)
-  python3 bank.py <study-dir> add-lecture <lec.json>   # ingest lecture examples as text questions
+  python3 bank.py <study-dir> add-lecture <lec.json>   # ingest any lecture examples
   python3 bank.py <study-dir> list [--point ID ...] [--type T] [--unused]
                                                        # compact index: qid|point|type|score|used|stem head
   python3 bank.py <study-dir> get QID [QID ...]        # full JSON of selected entries (quiz-JSON ready)
@@ -69,14 +69,20 @@ def cmd_add_lecture(bank, args):
     data = json.loads(pathlib.Path(args.file).read_text(encoding="utf-8"))
     qs = []
     for p in data.get("points", []):
-        ex = p.get("example") or {}
-        if ex.get("problem") and ex.get("solution"):
-            qs.append({"type": "text", "qtype_label": "例题改编（主观题）",
-                       "point_id": p.get("id"), "point_name": p.get("name"), "score": 10,
-                       "stem": ex["problem"], "reference": ex["solution"],
-                       "explanation": "源自讲义例题；出题时建议换数字/情境改编，避免原题复现。"})
+        examples = []
+        if isinstance(p.get("examples"), list):
+            examples.extend(p["examples"])
+        if isinstance(p.get("example"), dict):
+            examples.append(p["example"])
+        for ex in examples:
+            if ex.get("problem") and ex.get("solution"):
+                qs.append({"type": ex.get("type", "text"), "qtype_label": "例题改编",
+                           "point_id": p.get("id"), "point_name": p.get("name"), "score": 10,
+                           "stem": ex["problem"], "options": ex.get("options"),
+                           "answer": ex.get("answer"), "reference": ex["solution"],
+                           "explanation": "源自讲义例题；出题时建议换数字/情境改编，避免原题复现。"})
     n = ingest(bank, qs, pathlib.Path(args.file).name + " (lecture)")
-    print(f"added {n} lecture example(s) as text questions")
+    print(f"added {n} lecture example(s) to question bank")
 
 
 def cmd_list(bank, args):

@@ -1,7 +1,7 @@
 ---
 name: study-teach
 description: >
-  Lecture & explanation sub-skill (orchestrated by study-assistant; also usable standalone). Use when the learner wants a chapter/section taught ("开始讲解" "讲一下第三章" "生成讲义" "继续下一节"), asks a follow-up question about studied content, or says they didn't understand ("给我讲讲X" "没听懂，重讲一遍"). Generates complete section-by-section lecture notes in two selectable modes — 深入讲解 (deep understanding, leads with textbook原文) or 考试速通 (exam speed-run, 解题思维 + multiple examples) — as Obsidian Markdown and/or interactive HTML with rendered math, robust Markdown tables, and generated function-graph figures when the source teaches with curves; conversation is reserved for targeted Q&A and re-teaching.
+  Lecture & explanation sub-skill (orchestrated by study-assistant; also usable standalone). Use when the learner wants a chapter/section taught ("开始讲解" "讲一下第三章" "生成讲义" "继续下一节"), asks a follow-up question about studied content, or says they didn't understand ("给我讲讲X" "没听懂，重讲一遍"). Generates complete section-by-section lecture notes in two selectable modes — 深入讲解 (deep understanding, leads with textbook原文) or 考试速通 (exam speed-run, 解题思维 + targeted examples by importance/question frequency) — as Obsidian Markdown and/or interactive HTML with rendered math, robust Markdown tables, and generated function-graph figures when the source teaches with curves; conversation is reserved for targeted Q&A and re-teaching.
 ---
 
 # Teaching: Lecture Notes + Q&A
@@ -25,7 +25,7 @@ Ask the learner once which lecture format they want and store it as `lecture_for
 There are two teaching modes. Default to whatever progress.json's `study_mode` last held; before generating each section, briefly let the learner switch (harder chapters → deep, easy ones → speedrun). Store the chosen mode back to progress.json `study_mode`. The mode sets `mode` in the lecture JSON and changes which fields each point carries:
 
 - **`deep` 深入讲解** — truly understand and master the textbook. Each point leads with the textbook's key original wording, then a rich explanation. Substantial: a core point's `formal` runs ~500–1200 Chinese characters with full derivation/reasoning.
-- **`speedrun` 考试速通** — exam-focused, no lengthy theory. Each point states the conclusion in 1–3 sentences, then the **解题思维/套路** (how to read and solve this question type) and **multiple worked examples**. The center of gravity is doing problems and the method, not understanding for its own sake.
+- **`speedrun` 考试速通** — exam-focused, no lengthy theory. Each point states the conclusion in 1–3 sentences, then the **解题思维/套路** (how to read and solve this question type). Worked examples are targeted to high-value points, not mechanically attached to every point. The center of gravity is doing problems and the method, not understanding for its own sake.
 
 Mode affects **lectures only** — quizzing (study-quiz) behaves the same in both modes.
 
@@ -38,11 +38,11 @@ Long generations degrade toward the end. One section (3.1, 3.2, ...) at a time; 
 
    **Both modes**: `exam_focus` (importance + question types, cite exam-style.md when present), `pitfalls`, `memory_hook` (mnemonic/framework; humanities: a 3–5 bullet recitation version), optional `figures`, `links`.
 
-   **deep mode**: `textbook_excerpt` (教材关键原文 — quote the source verbatim when the extracted `textbook/` text is clean; paraphrase the core wording when it is scanned/messy), `intuition` (analogy + where it breaks), `formal` (REQUIRED — textbook-grade statement, LaTeX for every formula, every symbol explained, full derivation/reasoning; this is where depth lives — be thorough, ~500–1200 chars for core points). One `example` is usually enough.
+   **deep mode**: `textbook_excerpt` (教材关键原文 — quote the source verbatim when the extracted `textbook/` text is clean; paraphrase the core wording when it is scanned/messy), `intuition` (analogy + where it breaks), `formal` (REQUIRED — textbook-grade statement, LaTeX for every formula, every symbol explained, full derivation/reasoning; this is where depth lives — be thorough, ~500–1200 chars for core points). Add examples only where practice meaningfully improves understanding or the point is frequently tested.
 
-   **speedrun mode**: `key_point` (1–3 sentences nailing the exam point), `method` (REQUIRED — 解题思维: how to recognize this question type, which formula, what steps, what traps to watch), and `examples` (an array of 2–3 worked problems; emphasize the solving routine, not theory).
+   **speedrun mode**: `key_point` (1–3 sentences nailing the exam point), `method` (REQUIRED — 解题思维: how to recognize this question type, which formula, what steps, what traps to watch), and optional `examples` for high-value points; emphasize the solving routine, not theory.
 
-   **Examples** (both modes): each is `{problem, solution, answer?}`. `solution` is the complete worked solution. `answer` (optional) is the problem's **final answer** — a string, or a list of acceptable forms (e.g. `["50", "50万元"]`). In the HTML lecture each example is **interactive**: the learner types an attempt and submits; if `answer` is present the page auto-checks it (✓/✗) and then reveals the full solution + a self-grade; if `answer` is absent it reveals the solution + self-grade on submit. So provide `answer` for calculation/short-answer problems (definite final answer) and omit it for open conceptual ones. Obsidian Markdown stays static (problem + foldable solution).
+   **Example allocation** (both modes): examples are optional. Do **not** require every knowledge point to have an example. Before writing examples, inspect `question-bank.json` when present: points that already appear often, have high `used` counts, or map to common quiz/question-bank entries deserve examples first. If there is no useful question bank, use the courseware/textbook's own worked examples as the priority signal. Then allocate by `importance`: high-importance points usually get 1–3 examples, medium points get an example only if they are computational/confusable, and low/background points can have none. Each included example is `{problem, solution, answer?}`. `solution` is the complete worked solution. `answer` (optional) is the problem's **final answer** — a string, or a list of acceptable forms (e.g. `["50", "50万元"]`). In the HTML lecture each example is **interactive**: the learner types an attempt and submits; if `answer` is present the page auto-checks it (✓/✗) and then reveals the full solution + a self-grade; if `answer` is absent it reveals the solution + self-grade on submit. So provide `answer` for calculation/short-answer problems (definite final answer) and omit it for open conceptual ones. Obsidian Markdown stays static (problem + foldable solution).
 
    **Markdown is fine in any text field** — `**bold**`, `-`/`1.` lists, and standard Markdown tables render correctly in both HTML and Obsidian. Keep math in LaTeX `$...$` / `$$...$$`.
 
@@ -77,7 +77,7 @@ python3 ~/.claude/skills/study-teach/scripts/build_lecture.py <section>.json --f
 ```
 
 4. Deliver: `open` the HTML, or for Obsidian give the file path inside the vault. In conversation say only 2–3 Chinese sentences: what the section covers, the 1–2 points that deserve the most attention, and a reminder that solutions are collapsed — attempt first.
-5. Update state: covered points `status` → 已讲解; progress.json (`current_point`, `next_action`, one log entry); regenerate the mind map; ingest the section's examples into the question bank (`python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> add-lecture <section>.json`) so study-quiz can reuse them later without re-reading source text. Show the pacing menu.
+5. Update state: covered points `status` → 已讲解; progress.json (`current_point`, `next_action`, one log entry); regenerate the mind map; ingest any section examples into the question bank (`python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> add-lecture <section>.json`) so study-quiz can reuse them later without re-reading source text. It is fine if a low-frequency section adds zero examples. Show the pacing menu.
 
 ## Q&A / re-teach mode (conversation)
 

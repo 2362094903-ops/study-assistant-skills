@@ -40,9 +40,11 @@ each point is expected to carry:
       "key_point": "核心结论：一两句把考点说透",
       "method": "解题思维/套路：这类题怎么审、用什么公式、按什么步骤解",
 
-      // ---- examples (deep 通常 1 道；speedrun 多道) ----
-      // 每道例题都可交互作答，提交后批改再展开 solution。请按知识点选择最合适的题型，
-      // 一节里的例题尽量有变化，不要全是同一种。题型 type（默认 text）：
+      // ---- examples (optional; allocate by importance / question-bank frequency) ----
+      // 不要求每个知识点都有例题。优先给高重要度、高频题库考点、课件原有例题对应的知识点配题；
+      // 低频或纯背景点可以省略 examples，把篇幅留给解释。每道例题都可交互作答，提交后批改再展开
+      // solution。请按知识点选择最合适的题型，一节里的例题尽量有变化，不要全是同一种。
+      // 题型 type（默认 text）：
       //   "single" 单选：options[] + answer=正确项下标(0=A)
       //   "multi"  多选：options[] + answer=正确项下标数组 [0,2]
       //   "judge"  判断：answer=true/false
@@ -72,9 +74,9 @@ each point is expected to carry:
   ]
 }
 
-Required per point: id, name, and at least one complete example (`example` or a
-non-empty `examples`, each with problem+solution). Deep mode additionally
-requires `formal`; speedrun mode additionally requires `method`.
+Required per point: id and name. Examples are optional, but every included
+example (`example` or `examples[]`) must have problem+solution. Deep mode
+additionally requires `formal`; speedrun mode additionally requires `method`.
 """
 import argparse
 import datetime
@@ -253,6 +255,10 @@ def example_list(p):
     return []
 
 
+def example_count(data):
+    return sum(len(example_list(p)) for p in data.get("points", []))
+
+
 def figure_list(p):
     figures = p.get("figures") or p.get("images") or []
     if isinstance(figures, dict):
@@ -276,8 +282,6 @@ def validate(data):
             if not p.get(key):
                 errs.append(f"{tag}: missing {key}")
         exs = example_list(p)
-        if not exs:
-            errs.append(f"{tag}: needs at least one example (example or examples[])")
         for j, ex in enumerate(exs):
             etag = f"{tag}.examples[{j}]"
             if not (ex.get("problem") and ex.get("solution")):
@@ -351,6 +355,8 @@ def render_markdown_figures(figures):
 def render_markdown(data):
     mode = data["mode"]
     mode_label = "深入讲解" if mode == "deep" else "考试速通"
+    ex_count = example_count(data)
+    practice_note = f"例题 {ex_count} 道，答案默认折叠，先自己做再展开。" if ex_count else "本节按考频未配置例题，重点看讲解与易错辨析。"
     lines = [
         "---",
         f"textbook: {data['textbook']}",
@@ -364,7 +370,7 @@ def render_markdown(data):
         f"# {data['section']}",
         "",
         f"> 《{data['textbook']}》{data['chapter_title']} ｜ {mode_label}模式 ｜ "
-        f"{len(data['points'])} 个知识点 ｜ 例题答案默认折叠，先自己做再展开。",
+        f"{len(data['points'])} 个知识点 ｜ {practice_note}",
         "",
     ]
     for p in data["points"]:
@@ -534,7 +540,7 @@ window.MathJax = {{ tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']
 <nav id="toc"><h2>{section}</h2>{toc}</nav>
 <main>
 <h1>{section}<span class="modetag">{mode_label}</span></h1>
-<div class="meta">《{textbook}》{chapter} ｜ {n} 个知识点 ｜ 生成于 {date} ｜ 例题请先作答，提交后批改并展开解答</div>
+<div class="meta">《{textbook}》{chapter} ｜ {n} 个知识点 ｜ 生成于 {date} ｜ {practice_note}</div>
 <div id="mjwarn">⚠️ 离线状态：公式渲染（MathJax）加载失败，以下公式显示为 LaTeX 源码，含义不受影响。</div>
 """
 
@@ -660,6 +666,8 @@ def render_html_figures(figures):
 def render_html(data):
     mode = data["mode"]
     mode_label = "深入讲解" if mode == "deep" else "考试速通"
+    ex_count = example_count(data)
+    practice_note = f"例题 {ex_count} 道 ｜ 例题请先作答，提交后批改并展开解答" if ex_count else "本节按考频未配置例题，重点看讲解与易错辨析"
     toc = "".join(
         f'<a href="#p-{esc(p["id"])}">{esc(p["id"])} {esc(p["name"])}'
         f'{" ⭐" if p.get("importance") == "高" else ""}</a>'
@@ -668,7 +676,7 @@ def render_html(data):
         title=f"{data['section']} · 讲义", section=esc(data["section"]),
         textbook=esc(data["textbook"]), chapter=esc(data["chapter_title"]),
         n=len(data["points"]), date=datetime.date.today().isoformat(),
-        toc=toc, mode_label=mode_label)]
+        toc=toc, mode_label=mode_label, practice_note=esc(practice_note))]
     for p in data["points"]:
         star = " ⭐" if p.get("importance") == "高" else ""
         out.append(f'<section class="point" id="p-{esc(p["id"])}">')
