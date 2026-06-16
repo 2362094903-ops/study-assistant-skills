@@ -16,11 +16,13 @@ The workspace keeps a reusable question bank (`question-bank.json`, managed by `
 
 ```bash
 python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> list --point 3.1.2 3.1.3   # cheap index
+python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> stats --point 3.1.2 3.1.3  # per-point frequency summary
 python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> get Q0003 Q0007            # full entries
 python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> use Q0003 Q0007            # after assembling
 ```
 
 - Prefer unused / least-used entries; for repeat practice **adapt** bank entries (new numbers/scenario, same point) instead of reusing verbatim.
+- Use `stats` before teaching/quiz planning when you need to know which points have historically been tested most often (`entries`, `used_total`, type mix).
 - Write brand-new questions ONLY for points the bank doesn't cover. Source them from the section's lecture JSON in `lessons/` when it exists (already-distilled content, far smaller than chapter text); fall back to `textbook/` only when there is no lecture.
 - After building any new quiz, ingest it: `bank.py <study-dir> add <quiz.json>` — the bank grows as a side effect of normal use.
 
