@@ -29,6 +29,7 @@ each point is expected to carry:
       "id": "1.1.1",
       "name": "资产负债表恒等式",
       "importance": "高",                  // 高 / 中 / 低
+      "source_ref": "教材第 18 页 / 课件第 12 页 / 教材例 2-1",
       "exam_focus": "考情定位（两种模式都填）",
 
       // ---- deep mode fields ----
@@ -53,7 +54,7 @@ each point is expected to carry:
       // problem 题面、solution 完整解答/解析 必填（所有题型，提交后展开）。
       // Obsidian 版为静态：题面（选择题附选项列表）+ 折叠解答（含答案）。
       "examples": [
-        {"type": "single", "problem": "下列哪项属于资本预算决策？", "options": ["延长应付账款账期", "新建一条生产线", "发行股票融资", "提高存货周转"], "answer": 1, "solution": "B。新建生产线是长期资产支出，属资本预算……"},
+        {"type": "single", "source_ref": "课件例题第 6 页", "problem": "下列哪项属于资本预算决策？", "options": ["延长应付账款账期", "新建一条生产线", "发行股票融资", "提高存货周转"], "answer": 1, "solution": "B。新建生产线是长期资产支出，属资本预算……"},
         {"type": "judge", "problem": "股东权益 = 资产 + 负债。", "answer": false, "solution": "错误。股东权益 = 资产 − 负债……"},
         {"type": "text", "problem": "U = XY，Pₓ=1，Pᵧ=2，I=40，求最优组合。", "answer": ["X=20,Y=10", "X=20，Y=10"], "solution": "由 MUₓ/Pₓ=MUᵧ/Pᵧ……得 X=20，Y=10。"}
       ],
@@ -74,9 +75,11 @@ each point is expected to carry:
   ]
 }
 
-Required per point: id and name. Examples are optional, but every included
-example (`example` or `examples[]`) must have problem+solution. Deep mode
-additionally requires `formal`; speedrun mode additionally requires `method`.
+Required per point: id and name. `source_ref` is optional but recommended
+whenever the content comes from a specific textbook page, slide, figure, table,
+or worked example. Examples are optional, but every included example (`example`
+or `examples[]`) must have problem+solution. Deep mode additionally requires
+`formal`; speedrun mode additionally requires `method`.
 """
 import argparse
 import datetime
@@ -352,6 +355,15 @@ def render_markdown_figures(figures):
     return lines
 
 
+def source_text(obj):
+    return str(obj.get("source_ref") or obj.get("source") or "").strip()
+
+
+def markdown_source_line(obj, prefix="来源"):
+    src = source_text(obj)
+    return f"*{prefix}：{src}*" if src else ""
+
+
 def render_markdown(data):
     mode = data["mode"]
     mode_label = "深入讲解" if mode == "deep" else "考试速通"
@@ -377,6 +389,10 @@ def render_markdown(data):
         star = IMPORTANCE_MARK.get(p.get("importance", "中"), "")
         lines.append(f"## {p['id']} {p['name']} {star}".rstrip())
         lines.append("")
+        src_line = markdown_source_line(p)
+        if src_line:
+            lines.append(src_line)
+            lines.append("")
         if p.get("exam_focus"):
             lines.append(quote_block(p["exam_focus"], "info"))
             lines.append("")
@@ -408,6 +424,9 @@ def render_markdown(data):
             tlabel = TYPE_LABEL.get(etype, "")
             head = f"{base}（{tlabel}）" if tlabel else base
             lines.append(f"**{head}**　{ex['problem']}")
+            ex_src = markdown_source_line(ex)
+            if ex_src:
+                lines.append(ex_src)
             lines.append("")
             opts = ex.get("options") or []
             if etype in ("single", "multi") and opts:
@@ -501,6 +520,9 @@ window.MathJax = {{ tex: {{ inlineMath: [['$', '$']], displayMath: [['$$', '$$']
   .figure img {{ display: block; width: 100%; max-height: 460px; object-fit: contain; background: #fff; }}
   .figure figcaption {{ padding: 8px 12px; font-size: 13px; color: #4b5563; border-top: 1px solid #e5e7eb; line-height: 1.6; }}
   .figure .source {{ display: block; color: #6b7280; margin-top: 2px; }}
+  .source-ref, .ex-source {{ color: #6b7280; font-size: 12px; line-height: 1.6; }}
+  .source-ref {{ margin: -2px 0 8px; }}
+  .ex-source {{ margin: 4px 0 6px; }}
   details {{ border: 1px solid #d1d5db; border-radius: 8px; padding: 10px 14px; margin: 10px 0; background: #fafafa; }}
   details summary {{ cursor: pointer; font-weight: 600; font-size: 14px; color: #374151; }}
   details .rich {{ margin-top: 10px; }}
@@ -663,6 +685,11 @@ def render_html_figures(figures):
     return "".join(out)
 
 
+def html_source(obj, cls="source-ref", prefix="来源"):
+    src = source_text(obj)
+    return f'<div class="{cls}">{esc(prefix)}：{esc(src)}</div>' if src else ""
+
+
 def render_html(data):
     mode = data["mode"]
     mode_label = "深入讲解" if mode == "deep" else "考试速通"
@@ -681,6 +708,7 @@ def render_html(data):
         star = " ⭐" if p.get("importance") == "高" else ""
         out.append(f'<section class="point" id="p-{esc(p["id"])}">')
         out.append(f'<h2>{esc(p["id"])} {esc(p["name"])}{star}</h2>')
+        out.append(html_source(p))
         if p.get("exam_focus"):
             out.append(f'<div class="box info">📌 <div class="rich">{render_rich(p["exam_focus"])}</div></div>')
         if mode == "deep":
@@ -718,6 +746,7 @@ def render_html(data):
             out.append(f'<div class="ex" data-extype="{etype}" data-ans="{html_mod.escape(ans_data, quote=True)}">')
             out.append(f'<div class="field"><span class="lead">{head}</span>'
                        f'<div class="rich">{render_rich(ex["problem"])}</div></div>')
+            out.append(html_source(ex, cls="ex-source"))
             if etype in ("single", "multi"):
                 out.append('<div class="ex-opts">')
                 for i, o in enumerate(ex.get("options") or []):

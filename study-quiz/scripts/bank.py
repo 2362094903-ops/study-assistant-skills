@@ -10,6 +10,7 @@ Usage:
   python3 bank.py <study-dir> add-lecture <lec.json>   # ingest any lecture examples
   python3 bank.py <study-dir> list [--point ID ...] [--type T] [--unused]
                                                        # compact index: qid|point|type|score|used|stem head
+  python3 bank.py <study-dir> stats [--point ID ...]   # compact per-point frequency summary
   python3 bank.py <study-dir> get QID [QID ...]        # full JSON of selected entries (quiz-JSON ready)
   python3 bank.py <study-dir> use QID [QID ...]        # mark as used (after assembling a quiz)
 
@@ -18,6 +19,7 @@ Recommended flow when quizzing: `list --point ...` first → `get` the picks
 questions ONLY for uncovered points → assemble quiz JSON → build_quiz.py → `use`.
 """
 import argparse
+from collections import Counter, defaultdict
 import datetime
 import hashlib
 import json
@@ -25,7 +27,8 @@ import pathlib
 import sys
 
 QUESTION_FIELDS = ("type", "qtype_label", "point_id", "point_name", "score",
-                   "stem", "options", "answer", "partial", "reference", "explanation")
+                   "stem", "options", "answer", "partial", "reference", "explanation",
+                   "source_ref")
 
 
 def load_bank(path):
@@ -80,6 +83,7 @@ def cmd_add_lecture(bank, args):
                            "point_id": p.get("id"), "point_name": p.get("name"), "score": 10,
                            "stem": ex["problem"], "options": ex.get("options"),
                            "answer": ex.get("answer"), "reference": ex["solution"],
+                           "source_ref": ex.get("source_ref") or p.get("source_ref"),
                            "explanation": "源自讲义例题；出题时建议换数字/情境改编，避免原题复现。"})
     n = ingest(bank, qs, pathlib.Path(args.file).name + " (lecture)")
     print(f"added {n} lecture example(s) to question bank")
@@ -100,6 +104,33 @@ def cmd_list(bank, args):
         head = (e.get("stem") or "").replace("\n", " ")[:34]
         print(f"{e['qid']} | {e.get('point_id','?'):8} | {e.get('type','?'):6} | "
               f"{e.get('score','?'):>3}分 | used:{e['used']} | {head}")
+
+
+def cmd_stats(bank, args):
+    rows = bank["entries"]
+    if args.point:
+        wanted = set(args.point)
+        rows = [e for e in rows if e.get("point_id") in wanted]
+    groups = defaultdict(list)
+    for e in rows:
+        groups[e.get("point_id") or "?"].append(e)
+    if not groups:
+        print("(no matching entries)")
+        return
+    summary = []
+    for pid, entries in groups.items():
+        used_total = sum(int(e.get("used") or 0) for e in entries)
+        unused = sum(1 for e in entries if not int(e.get("used") or 0))
+        types = Counter(e.get("type") or "?" for e in entries)
+        point_name = next((e.get("point_name") for e in entries if e.get("point_name")), "")
+        qids = ",".join(e["qid"] for e in sorted(entries, key=lambda x: x["qid"])[:5])
+        summary.append((len(entries), used_total, pid, point_name, unused, types, qids))
+    for count, used_total, pid, point_name, unused, types, qids in sorted(
+            summary, key=lambda x: (-x[0], -x[1], x[2])):
+        type_txt = ",".join(f"{k}:{v}" for k, v in sorted(types.items()))
+        name_txt = f" {point_name}" if point_name else ""
+        print(f"{pid:8}{name_txt} | entries:{count} | used_total:{used_total} | "
+              f"unused:{unused} | types:{type_txt} | sample:{qids}")
 
 
 def cmd_get(bank, args):
@@ -131,13 +162,14 @@ def main():
     p = sub.add_parser("add-lecture"); p.add_argument("file")
     p = sub.add_parser("list")
     p.add_argument("--point", nargs="*"); p.add_argument("--type"); p.add_argument("--unused", action="store_true")
+    p = sub.add_parser("stats"); p.add_argument("--point", nargs="*")
     p = sub.add_parser("get"); p.add_argument("qids", nargs="+")
     p = sub.add_parser("use"); p.add_argument("qids", nargs="+")
     args = ap.parse_args()
 
     bank_path = pathlib.Path(args.study_dir) / "question-bank.json"
     bank = load_bank(bank_path)
-    {"add": cmd_add, "add-lecture": cmd_add_lecture, "list": cmd_list,
+    {"add": cmd_add, "add-lecture": cmd_add_lecture, "list": cmd_list, "stats": cmd_stats,
      "get": cmd_get, "use": cmd_use}[args.cmd](bank, args)
     if args.cmd in ("add", "add-lecture", "use"):
         save_bank(bank_path, bank)
