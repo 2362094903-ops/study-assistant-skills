@@ -99,3 +99,24 @@ Triggered by any question about the material, or "没听懂".
 ## After every unit
 
 Lecture generation changes status; Q&A alone does not. Update files immediately, then show the menu. A nudge is fine ("趁热打铁来几道题？") — the learner decides.
+
+## Chapter aggregation (整章合并讲义)
+
+When all sections of a chapter have been generated and the learner wants one combined file (e.g. "把本章讲义合成一个HTML"), run:
+
+```bash
+python3 ~/.claude/skills/study-teach/scripts/build_chapter_lecture.py \
+  <study-dir>/lessons/chapter-XX/ --format <lecture_format>
+```
+
+The script:
+- Globs all `*.json` section files in the chapter directory, validates each, and sorts by section number
+- Reuses the exact same rendering pipeline as `build_lecture.py` (`render_html_points`, `render_rich`, etc.) so point content is identical
+- Produces `chapter-XX.html` and/or `chapter-XX.md` with:
+  - **Multi-level TOC**: sections as group headers (with mode tags), points nested as links
+  - **Section dividers** (`div.ch-sec`): each section gets a `<h2>` title + mode tag + its rendered points
+  - **Chapter-level meta line**: textbook, section count, total points, date, example count
+  - **Chapter-scoped localStorage key** (`lecture-done-chapter-X-`) so "已学完" tracking does not interfere with per-section HTML
+- Markdown output uses a 3-level heading hierarchy (`#` chapter, `##` section, `###` point) with Obsidian-style foldable callouts
+
+The learner can request this at any time; it does not modify any state files.

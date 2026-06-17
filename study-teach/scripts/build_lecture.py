@@ -690,21 +690,14 @@ def html_source(obj, cls="source-ref", prefix="来源"):
     return f'<div class="{cls}">{esc(prefix)}：{esc(src)}</div>' if src else ""
 
 
-def render_html(data):
-    mode = data["mode"]
-    mode_label = "深入讲解" if mode == "deep" else "考试速通"
-    ex_count = example_count(data)
-    practice_note = f"例题 {ex_count} 道 ｜ 例题请先作答，提交后批改并展开解答" if ex_count else "本节按考频未配置例题，重点看讲解与易错辨析"
-    toc = "".join(
-        f'<a href="#p-{esc(p["id"])}">{esc(p["id"])} {esc(p["name"])}'
-        f'{" ⭐" if p.get("importance") == "高" else ""}</a>'
-        for p in data["points"])
-    out = [HTML_HEAD.format(
-        title=f"{data['section']} · 讲义", section=esc(data["section"]),
-        textbook=esc(data["textbook"]), chapter=esc(data["chapter_title"]),
-        n=len(data["points"]), date=datetime.date.today().isoformat(),
-        toc=toc, mode_label=mode_label, practice_note=esc(practice_note))]
-    for p in data["points"]:
+def render_html_points(points, mode):
+    """Render a list of knowledge points as HTML <section class="point"> blocks.
+
+    Used by render_html() for per-section output and by build_chapter_lecture.py
+    for chapter-level aggregation, so both produce identical point rendering.
+    """
+    out = []
+    for p in points:
         star = " ⭐" if p.get("importance") == "高" else ""
         out.append(f'<section class="point" id="p-{esc(p["id"])}">')
         out.append(f'<h2>{esc(p["id"])} {esc(p["name"])}{star}</h2>')
@@ -779,6 +772,24 @@ def render_html(data):
             out.append(f'<div class="links">关联知识点：{esc("、".join(p["links"]))}</div>')
         out.append(f'<button class="donebtn" data-id="{esc(p["id"])}"></button>')
         out.append("</section>")
+    return "\n".join(out)
+
+
+def render_html(data):
+    mode = data["mode"]
+    mode_label = "深入讲解" if mode == "deep" else "考试速通"
+    ex_count = example_count(data)
+    practice_note = f"例题 {ex_count} 道 ｜ 例题请先作答，提交后批改并展开解答" if ex_count else "本节按考频未配置例题，重点看讲解与易错辨析"
+    toc = "".join(
+        f'<a href="#p-{esc(p["id"])}">{esc(p["id"])} {esc(p["name"])}'
+        f'{" ⭐" if p.get("importance") == "高" else ""}</a>'
+        for p in data["points"])
+    out = [HTML_HEAD.format(
+        title=f"{data['section']} · 讲义", section=esc(data["section"]),
+        textbook=esc(data["textbook"]), chapter=esc(data["chapter_title"]),
+        n=len(data["points"]), date=datetime.date.today().isoformat(),
+        toc=toc, mode_label=mode_label, practice_note=esc(practice_note))]
+    out.append(render_html_points(data["points"], mode))
     out.append(HTML_TAIL)
     return "\n".join(out)
 

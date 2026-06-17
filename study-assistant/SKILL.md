@@ -115,6 +115,7 @@ Fix every violation it reports before moving on. This guarantees identical state
 After every unit (one section's lecture / one Q&A round / one quiz graded / one Feynman check), update state first (see below), then offer (AskUserQuestion if available, otherwise plain text):
 
 - 生成下一节讲义：`<next section title>`
+- 把本章已生成的讲义合成一个文件（整章合并 HTML）
 - 答疑 / 没看懂的地方重讲
 - 就本节知识点出题考我
 - 对本章已学内容做综合测验
@@ -129,6 +130,9 @@ The user may interrupt, jump, or ask for re-teaching at any time — follow the 
 - `.md` / `.txt` / `.docx`: read directly (use a local doc/docx skill for extraction if available).
 - `.pdf`: run `python3 ~/.claude/skills/study-assistant/scripts/extract_pdf.py <pdf> --pages <range> -o <out.md>`. It extracts text and flags likely scanned pages (too little text).
   - If scanned pages exist, add `--render-scanned <png-dir>`, then use `study-img` to OCR each PNG and merge results back into the chapter md.
+- `.pptx` / `.ppt`: run `python3 ~/.claude/skills/study-assistant/scripts/extract_pptx.py <pptx> --slides <range> -o <out.md>`. Extracts slide titles, body text, tables, and speaker notes as Markdown with `<!-- slide N -->` markers. Slides that are mostly images with little text are flagged `IMAGE-HEAVY, 待 OCR`.
+  - If image-heavy slides exist, add `--render-images <png-dir>` to export embedded images, then use `study-img` to OCR each one.
+  - `.ppt` (old format) is auto-converted via LibreOffice (`libreoffice --headless`) if available; otherwise the script prints a clear action message (save as .pptx, or install LibreOffice).
 - Images (png/jpg/...): invoke `study-img`.
 - Figures marked `[图]` in extracted text: when a lecture needs the figure's content, use `study-img` on the rendered page.
 
@@ -159,3 +163,4 @@ Invocation: prefer the Skill tool by name; if unavailable, Read `~/.claude/skill
 - Formula conventions: LaTeX (`$...$`) in conversation, Markdown lecture notes, and MathJax-rendered lecture HTML; Unicode math (MU₁/P₁ = λ) in zero-dependency HTML (mind map, quiz pages).
 - Lectures and reports are files; conversation is for Q&A, grading feedback, and orchestration.
 - When the user gets things wrong, the tone is: name the problem + offer a step back up + schedule the redo. Never dismissive, never sugar-coating.
+- After all sections of a chapter have lectures, the learner may ask for a combined chapter file ("把本章讲义合成一个HTML"). Run `build_chapter_lecture.py` as documented in study-teach. This is a convenience merge — it reads the existing section JSON files, does not change state.
