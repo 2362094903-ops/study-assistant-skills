@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Aggregate per-section lecture JSON files into a combined chapter-level HTML
+"""Aggregate per-point or per-section lecture JSON files into a combined chapter-level HTML
 and/or Obsidian Markdown file.
 
-Why: the learner works through one section at a time (build_lecture.py), but
-once a chapter is complete they want a single file to review the whole chapter.
-This script reads all section JSON files (the source of truth) and merges them,
-reusing the exact same rendering pipeline as build_lecture.py.
+Why: the learner works through one knowledge point at a time (build_lecture.py),
+but a chapter is complete only after one main chapter file is built. This script
+reads all unit JSON files (the source of truth), groups point files by section,
+and reuses the exact rendering pipeline from build_lecture.py.
 
 Usage:
   python3 build_chapter_lecture.py lessons/chapter-03/                         # both formats
   python3 build_chapter_lecture.py lessons/chapter-03/ --format obsidian       # markdown only
   python3 build_chapter_lecture.py lessons/chapter-03/ --format html           # html only
   python3 build_chapter_lecture.py lessons/chapter-03/ -o lessons/chapter-03/  # output dir (default: same)
+  python3 build_chapter_lecture.py internal/lessons/chapter-03/ --format html --publish <study-dir>
 """
 
 import argparse
@@ -20,6 +21,7 @@ import html as html_mod
 import json
 import pathlib
 import re
+import shutil
 import sys
 
 # Import the rendering pipeline from the sibling build_lecture.py
@@ -41,25 +43,58 @@ def _section_sort_key(section_str):
 
 
 # ---------------------------------------------------------------------------
-# Load & validate all section JSONs in a chapter directory
+# Load, validate, and group all unit JSONs in a chapter directory
 # ---------------------------------------------------------------------------
 def load_section_jsons(chapter_dir):
-    """Glob *.json files, validate each, return list of (data, filepath) sorted
-    by section number."""
+    """Load unit JSON files, group them by section, and return merged sections.
+
+    New workspaces normally have one point per JSON. Legacy section-level JSON
+    files remain supported. Duplicate point ids are rejected.
+    """
     json_files = sorted(chapter_dir.glob("*.json"),
                         key=lambda f: _section_sort_key(f.stem))
     if not json_files:
         sys.exit(f"未找到讲义 JSON 文件：{chapter_dir}/*.json")
-    sections = []
+    units = []
     for jf in json_files:
         data = json.loads(jf.read_text(encoding="utf-8"))
         data.setdefault("mode", "deep")
         errs = validate(data)
         if errs:
             sys.exit(f"{jf.name}: validation failed:\n  " + "\n  ".join(errs))
-        sections.append((data, jf))
-    # Sort by section field (natural order: 1.1, 1.2 … 1.10)
-    sections.sort(key=lambda s: _section_sort_key(s[0].get("section", "")))
+        units.append((data, jf))
+
+    units.sort(key=lambda s: (
+        _section_sort_key(s[0].get("section", "")),
+        _section_sort_key(s[0].get("points", [{}])[0].get("id", "")),
+        s[1].name,
+    ))
+    grouped = {}
+    order = []
+    seen_points = {}
+    for data, jf in units:
+        section = data["section"]
+        if section not in grouped:
+            grouped[section] = (dict(data, points=[]), jf)
+            order.append(section)
+        merged, first_path = grouped[section]
+        for field_name in ("textbook", "chapter_id", "chapter_title", "mode"):
+            if merged.get(field_name) != data.get(field_name):
+                sys.exit(
+                    f"{jf.name}: section '{section}' has inconsistent {field_name}: "
+                    f"{data.get(field_name)!r} != {merged.get(field_name)!r}"
+                )
+        for point in data["points"]:
+            pid = point["id"]
+            if pid in seen_points:
+                sys.exit(f"duplicate point id {pid}: {seen_points[pid].name} and {jf.name}")
+            seen_points[pid] = jf
+            merged["points"].append(point)
+        grouped[section] = (merged, first_path)
+
+    sections = [grouped[s] for s in order]
+    for data, _ in sections:
+        data["points"].sort(key=lambda p: _section_sort_key(p["id"]))
     return sections
 
 
@@ -469,9 +504,10 @@ def render_chapter_html(sections):
 # ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("chapter_dir", help="path to lessons/chapter-XX/ containing section JSON files")
+    ap.add_argument("chapter_dir", help="path to lessons/chapter-XX/ containing point/section JSON files")
     ap.add_argument("--format", choices=["obsidian", "html", "both"], default="both")
     ap.add_argument("-o", "--out", help="output directory (default: same as chapter_dir)")
+    ap.add_argument("--publish", help="study-dir; also write main chapter HTML to open/chapters/")
     args = ap.parse_args()
 
     chapter_dir = pathlib.Path(args.chapter_dir)
@@ -492,9 +528,21 @@ def main():
         print(f"generated {out_path}")
 
     if args.format in ("html", "both"):
+        html_text = render_chapter_html(sections)
         out_path = out_dir / f"{stem}.html"
-        out_path.write_text(render_chapter_html(sections), encoding="utf-8")
+        out_path.write_text(html_text, encoding="utf-8")
         print(f"generated {out_path}")
+        if args.publish:
+            public_dir = pathlib.Path(args.publish) / "open" / "chapters"
+            public_dir.mkdir(parents=True, exist_ok=True)
+            public_path = public_dir / f"{stem}.html"
+            public_asset_dir = public_dir / "assets" / stem
+            source_asset_dir = chapter_dir / "assets"
+            public_html = html_text.replace('src="assets/', f'src="assets/{stem}/')
+            public_path.write_text(public_html, encoding="utf-8")
+            if source_asset_dir.exists():
+                shutil.copytree(source_asset_dir, public_asset_dir, dirs_exist_ok=True)
+            print(f"generated {public_path}")
 
 
 if __name__ == "__main__":

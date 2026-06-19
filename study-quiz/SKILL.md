@@ -1,115 +1,123 @@
 ---
 name: study-quiz
 description: >
-  Quiz & assessment sub-skill (orchestrated by study-assistant; also usable standalone). Three mandatory scenarios: (1) the user uploads past exam papers ("真题", 历年试卷, 样题) — analyze the question style into exam-style.md; (2) the user has no papers but wants school-style questions — search the web for that school's papers/sample exams (user-provided papers always take precedence); (3) the user asks to be tested — "出题" "考我" "测验" "模拟题" "来套模拟卷" "复盘错题" — generate an interactive HTML quiz (single/multiple-choice, true-false, free-response; per-question instant answer & explanation), grade submitted answers, maintain the mistake book, update mastery.
+  Quiz & assessment sub-skill (orchestrated by study-assistant; also usable standalone). Use when the learner uploads past papers/questions ("真题", 历年试卷, 样题), wants AI to search for school-style questions, asks to be tested ("出题" "考我" "测验" "模拟题" "来套模拟卷"), submits answers for grading, or asks to review mistakes. Maintains one course-level global question bank, prioritizes uploaded questions over web-sourced material, generates MathJax-capable interactive HTML quizzes, grades answers, updates mastery, and maintains the mistake book.
 ---
 
 # Quizzing & Grading
 
-**Output language: ALL learner-facing content MUST be in Simplified Chinese** — questions, explanations, grading feedback, reports.
+**Output language: ALL learner-facing content MUST be Simplified Chinese.**
 
-Two jobs: **exam-style analysis** and **quizzing & grading**. Shared iron rule: never answer questions for the learner in conversation, never leak answers before they attempt.
+Never leak answers before the learner attempts. Durable quiz artifacts are files; conversation is for source-choice confirmation, grading, and next-step guidance.
 
-## Bank first: check the question bank BEFORE writing questions
+## File and source standards
 
-The workspace keeps a reusable question bank (`question-bank.json`, managed by `bank.py`). Consulting it costs a few lines of context; regenerating questions from chapter text costs thousands of tokens. Flow:
+The question bank is course-level:
 
 ```bash
-python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> list --point 3.1.2 3.1.3   # cheap index
-python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> stats --point 3.1.2 3.1.3  # per-point frequency summary
-python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> get Q0003 Q0007            # full entries
-python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> use Q0003 Q0007            # after assembling
+<study-dir>/question-bank/question-bank.json
 ```
 
-- Prefer unused / least-used entries; for repeat practice **adapt** bank entries (new numbers/scenario, same point) instead of reusing verbatim.
-- Use `stats` before teaching/quiz planning when you need to know which points have historically been tested most often (`entries`, `used_total`, type mix).
-- Write brand-new questions ONLY for points the bank doesn't cover. Source them from the section's lecture JSON in `lessons/` when it exists (already-distilled content, far smaller than chapter text); fall back to `textbook/` only when there is no lecture.
-- After building any new quiz, ingest it: `bank.py <study-dir> add <quiz.json>` — the bank grows as a side effect of normal use.
+Never create per-chapter banks. Legacy `<study-dir>/question-bank.json` is accepted only for old workspaces.
 
-## Delivery format: interactive HTML quiz (default)
+Generated files:
 
-Quizzes are interactive HTML pages: the learner answers a question and immediately sees the verdict, answer, and explanation; a final score report can be exported and pasted back for grading.
+- quiz JSON: `<study-dir>/internal/quizzes/<date>-<topic>.json`
+- learner HTML: `<study-dir>/open/quizzes/<date>-<topic>.html`, produced with `build_quiz.py --publish <study-dir>`
+- exam profile: `<study-dir>/internal/state/exam-style.md`
+- mistake book: `<study-dir>/internal/state/mistakes.md`
+- reports: `<study-dir>/internal/reports/`
 
-1. Write the questions as quiz JSON (schema at the top of `~/.claude/skills/study-quiz/scripts/build_quiz.py`), saved to `<study-dir>/quizzes/<date>-<topic>.json`. Four question types:
-   - `single` (单选), `multi` (多选 — default exam rule: any wrong or missing selection scores 0; set `"partial": true` for half credit on incomplete-but-clean picks), `judge` (判断, answer true/false), `text` (主观题: 名词解释/简答/计算/论述). Match the mix to exam-style.md — if the real exam has no true-false questions, don't invent them.
-   - **Math in Unicode** (MU₁/P₁ = λ, U = X²Y, X^0.5) — this HTML is zero-dependency and does not render LaTeX; the build script rejects `\frac` etc.
-   - Objective questions REQUIRE `explanation`: why the right option is right and why each distractor is wrong (distractors come from real pitfalls; the explanation is the correction moment).
-   - `text` questions REQUIRE `reference`: model answer + point-by-point score breakdown for self-grading.
-2. Build and show: `python3 ~/.claude/skills/study-quiz/scripts/build_quiz.py <json>` then `open` the HTML.
-3. In conversation say one Chinese sentence only: quiz opened, N questions, click 导出作答记录 when done and paste it back. **Do not repeat the questions in chat.**
-4. When the learner pastes the 【作答记录】, grade (section "Grading" below): trust objective scores as-is; re-grade free-response answers yourself (self-grades are reference only); update the mistake book and mastery as usual.
+Quiz HTML supports LaTeX `$...$` / `$$...$$` through MathJax. Use LaTeX for real formulas; Unicode math is fine for short inline expressions.
 
-Fall back to pure-conversation quizzing only when the user explicitly asks ("在对话里考我").
+## Source priority
 
-## 1. Exam-style analysis
+1. User-uploaded real papers/questions are the gold standard.
+2. If the user has not uploaded questions, ask whether they want to upload questions or let AI search the web.
+3. If the user chooses web search, confirm school, subject/name/code, and year range first. Source priority: official syllabus/sample papers > prep-institution compilations > forum recollections.
+4. Web-sourced material must carry URLs and confidence labels. If real papers arrive later, re-analyze and override web-sourced assumptions.
 
-### Paper sources (user-provided always wins)
+## Bank-first workflow
 
-1. **User uploaded papers**: the gold standard. Papers may be PDF/image/text — extract per study-assistant's decision tree (scans via study-img).
-2. **No papers**: proactively offer to search the web for the target school's past papers or official sample exams. Before searching, confirm three things: school name, subject name & code (e.g. 811 西方经济学), year range. Use WebSearch/WebFetch. Source priority: **official syllabus/sample papers > prep-institution compilations > forum recollections (回忆版)**.
-3. Web-source caveats: recollected papers often have missing questions, wrong scores, imprecise wording — the profile MUST open with source URLs and confidence labels per claim (e.g. "题型结构由两个独立来源交叉印证，可信；分值仅单一回忆帖提及，存疑"). If the target school can't be found, fall back to a same-tier school's same subject and say so explicitly.
-4. If the user later uploads real papers, immediately re-analyze and overwrite the web-sourced profile.
+Before writing questions, inspect the bank:
 
-### Produce the profile
+```bash
+python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> list --point 3.1.2 3.1.3
+python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> stats --point 3.1.2 3.1.3
+python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> get Q0003 Q0007
+```
 
-Write `<study-dir>/exam-style.md`:
+Prefer unused or least-used entries. For repeat practice, adapt numbers/scenarios instead of reusing verbatim. Write brand-new questions only for uncovered points or when uploaded/web sources add better exam-style material.
+
+After building a quiz:
+
+```bash
+python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> add <quiz.json>
+python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> use Q0003 Q0007
+```
+
+## Exam-style analysis
+
+When uploaded or searched papers are available, write `internal/state/exam-style.md`:
 
 ```markdown
 # 命题风格档案：<院校/科目>（来源：<真题年份 或 网络检索+URL+置信度>）
 ## 试卷结构
-（题型、每型几题、分值、总分）
 ## 难度与风格特征
-（考记忆还是考应用？题干长短？结合时事/案例吗？计算量？）
 ## 高频考点 → 教材章节映射
-（真题反复出现的主题对应 knowledge.json 的哪些知识点；据此把这些点的 importance 改为"高"）
 ## 各题型出题模板与评分标准
-（题干句式、得分点结构——之后出题的直接依据）
 ## 典型真题摘录
-（每种题型抄 1 道原题作为风格锚点）
 ```
 
-Tell the user the conclusions in one Chinese paragraph, and update the named points' `importance` in knowledge.json.
+Then update relevant `knowledge.json` point importance. Tell the learner the conclusions in one concise Chinese paragraph.
 
-## 2. Question setting
+## Quiz generation
 
-### Point-reinforcement quiz (after a point/section is taught)
+Default delivery is interactive HTML. Write quiz JSON using the schema in `build_quiz.py`, then render:
 
-- Default 2–3 questions per point, easy → hard: first "can you recognize it" (概念辨析/选择/判断), then "can you use it" (小计算/简答/情景应用).
-- With exam-style.md: imitate its stem phrasing and question types strictly. Without: use the subject's conventional exam style (math → 计算/证明; humanities → 名词解释/简答; STEM → 概念+应用).
-- A good question tests understanding, not verbatim recall; distractors come from genuine confusions (相近概念、符号方向、适用条件); stems are self-contained.
-
-### Chapter quiz (after a chapter)
-
-A miniature paper following exam-style.md structure, covering ≥60% of the chapter's points (all high-importance points included), with per-question scores. Without a profile, use the conventional objective+subjective split.
-
-### Mistake-book review ("复盘错题")
-
-Pick entries not yet marked 已复盘 from `mistakes.md` and **re-ask in disguise** (same point, different scenario/numbers). Only a correct answer marks the entry 复盘通过.
-
-### Full mock exam ("模拟考" "来套整卷", or multiple chapters done)
-
-- **Full structure, not miniature**: question counts, scores, and total exactly per exam-style.md; state the real exam duration at the top and recommend timed answering.
-- **Cross-chapter sampling**: allocate by each chapter's score share in real papers; within a chapter prefer points with high importance × low mastery — mock exams exist to expose weaknesses, not to comfort.
-- Same HTML delivery. After grading, additionally write `<study-dir>/reports/mock-<date>.md`: gap to target score, per-chapter score table, weak-point redo plan ("接下来三次学习该做什么").
-
-## 3. Grading
-
-Answers arrive three ways: ① the HTML quiz's exported 【作答记录】; ② typed in conversation; ③ **photos of handwritten work** — transcribe via study-img `--mode answer` (verbatim, no corrections), show the learner the key transcribed steps to confirm recognition before grading; ask about every 【?】 instead of guessing.
-
-Per question give: verdict (partial scores for free-response, e.g. 7/10), correct answer, **exactly where the learner's reasoning broke** (the specific step, not just the model answer), and which knowledge.json point it maps to.
-
-### State updates after grading (immediately)
-
-1. **Mistake book** `mistakes.md`, one entry per miss:
-
-```markdown
-## <日期> ｜ <知识点id 知识点名>
-**题目**：…
-**你的答案**：…
-**正确答案/得分点**：…
-**错因**：（概念不清 / 记混了 / 计算失误 / 审题偏差）一句话点透
+```bash
+python3 ~/.claude/skills/study-quiz/scripts/build_quiz.py \
+  <study-dir>/internal/quizzes/<quiz>.json --publish <study-dir>
 ```
 
-2. **knowledge.json**: point `status` → 已测验; `mastery` by performance — clean & correct 4, mostly right 3, half wrong 2, mostly lost 1 (5 is Feynman-only). Write the failure cause into `note`.
-3. **progress.json** log entry; per changed point append one line to `history.jsonl` ({"date","point","event":"quiz","prev","mastery","note"}); regenerate the mind map (study-mindmap) and refresh the dashboard (`build_dashboard.py <study-dir>`).
-4. Show the pacing menu. If mastery ≤ 2, the recommended next step is re-teaching, not advancing.
+Question types:
+
+- `single`: options + integer answer index.
+- `multi`: options + answer index list; default no partial credit unless `partial: true`.
+- `judge`: true/false.
+- `text`: subjective/calculation; requires `reference`.
+
+Objective questions require `explanation`: why the right answer is right and why distractors are wrong. Text questions require point-by-point scoring criteria.
+
+### Point or section reinforcement
+
+Default 2-3 questions per point, easy -> hard. Use uploaded/source questions first, then bank entries, then new questions from lecture JSON. Without exam-style.md, use the subject's normal style.
+
+### Chapter quiz
+
+Cover at least 60% of the chapter's points and all high-importance points. Follow `exam-style.md` when present.
+
+### Mistake-book review
+
+Pick unresolved mistakes and re-ask them in disguise. Only a correct redo marks the mistake as `复盘通过`.
+
+### Mock exam
+
+When the learner asks for a full mock, follow the real structure, scoring, and time from `exam-style.md`. After grading, write `internal/reports/mock-<date>.md`.
+
+## Delivery
+
+Open or provide the path to the HTML in `open/quizzes/`. In conversation say one Chinese sentence: the quiz has opened, how many questions it has, and to export/paste the answer record after finishing. Do not repeat quiz questions in chat unless the learner explicitly asks for conversation-mode quizzing.
+
+## Grading
+
+Answers may arrive from exported HTML records, conversation, or handwritten photos. For handwritten work, invoke `study-img --mode answer`, transcribe verbatim, confirm uncertain `【?】`, then grade.
+
+For each graded question, give verdict, score, correct answer, exact reasoning break, and mapped knowledge point.
+
+After grading:
+
+1. Update `internal/state/mistakes.md` for misses.
+2. Update `knowledge.json`: status -> `已测验`, mastery 1-4 by performance, note = concrete weak spot.
+3. Append `history.jsonl`, update `progress.json`, regenerate mind map, refresh dashboard.
+4. If mastery <= 2, recommend re-teaching before advancing.

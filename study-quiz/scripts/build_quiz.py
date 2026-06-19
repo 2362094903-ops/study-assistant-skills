@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""从 quiz JSON 生成可交互 HTML 试卷（做一题显示一题的答案与解析，零依赖离线可开）。
+"""从 quiz JSON 生成可交互 HTML 试卷（做一题显示一题的答案与解析）。
+
+数学公式支持 LaTeX $...$ / $$...$$，HTML 通过 MathJax 渲染；离线时退化为
+LaTeX 源码显示。
 
 用法：
   python3 build_quiz.py <quiz.json> [-o 输出.html]    # 默认输出到同名 .html
+  python3 build_quiz.py internal/quizzes/ch3.json --publish <study-dir>
 
 quiz JSON schema：
 {
@@ -14,7 +18,7 @@ quiz JSON schema：
       "point_id": "3.1.4",
       "point_name": "消费者均衡",
       "score": 2,
-      "stem": "题干（公式用 Unicode 写法，如 MU₁/P₁ = λ，不要写 LaTeX 源码）",
+      "stem": "题干（公式可用 LaTeX，如 $MU_x/P_x=MU_y/P_y=\\lambda$）",
       "options": ["...", "...", "...", "..."],   // single/multi
       "answer": 0,                                // single：下标(0=A)；multi：下标列表 [0,2]；judge：true/false
       "partial": false,                           // 仅 multi 可选：true=漏选且无错选得一半分；默认错选漏选均不得分
@@ -69,8 +73,6 @@ def validate(data):
             errs.append(f"{tag}: 客观题必须给 explanation")
         if qtype == "text" and not q.get("reference"):
             errs.append(f"{tag}: 主观题必须给 reference（参考答案与得分点）")
-        if "\\frac" in (q.get("stem", "") + (q.get("reference") or "")):
-            errs.append(f"{tag}: 题面含 LaTeX 源码，HTML 不渲染公式，请改用 Unicode 写法")
     return errs
 
 
@@ -78,6 +80,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("quiz_json")
     ap.add_argument("-o", "--out", help="输出 HTML 路径，默认同名 .html")
+    ap.add_argument("--publish", help="study-dir；同时写一份 HTML 到 open/quizzes/")
     args = ap.parse_args()
 
     src = pathlib.Path(args.quiz_json)
@@ -91,8 +94,14 @@ def main():
             .replace("__GENERATED__", "生成于 " + datetime.date.today().isoformat())
             .replace("__DATA__", json.dumps(data, ensure_ascii=False)))
     out = pathlib.Path(args.out) if args.out else src.with_suffix(".html")
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     print(f"已生成 {out}（{len(data['questions'])} 题）")
+    if args.publish:
+        pub = pathlib.Path(args.publish) / "open" / "quizzes" / out.name
+        pub.parent.mkdir(parents=True, exist_ok=True)
+        pub.write_text(html, encoding="utf-8")
+        print(f"已生成 {pub}（仪表盘可链接）")
 
 
 if __name__ == "__main__":

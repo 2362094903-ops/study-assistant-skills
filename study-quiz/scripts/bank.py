@@ -3,7 +3,8 @@
 questions and lecture examples instead of regenerating from chapter text —
 listing the bank costs a few lines of context; regenerating costs thousands.
 
-Bank file: <study-dir>/question-bank.json
+Bank file: <study-dir>/question-bank/question-bank.json
+Legacy workspaces with <study-dir>/question-bank.json are still read and updated.
 
 Usage:
   python3 bank.py <study-dir> add <quiz.json>          # ingest a quiz's questions (dedup by stem hash)
@@ -38,7 +39,15 @@ def load_bank(path):
 
 
 def save_bank(path, bank):
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(bank, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def bank_path(study_dir):
+    study_dir = pathlib.Path(study_dir)
+    modern = study_dir / "question-bank" / "question-bank.json"
+    legacy = study_dir / "question-bank.json"
+    return legacy if legacy.exists() and not modern.exists() else modern
 
 
 def stem_hash(stem):
@@ -167,12 +176,12 @@ def main():
     p = sub.add_parser("use"); p.add_argument("qids", nargs="+")
     args = ap.parse_args()
 
-    bank_path = pathlib.Path(args.study_dir) / "question-bank.json"
-    bank = load_bank(bank_path)
+    path = bank_path(args.study_dir)
+    bank = load_bank(path)
     {"add": cmd_add, "add-lecture": cmd_add_lecture, "list": cmd_list, "stats": cmd_stats,
      "get": cmd_get, "use": cmd_use}[args.cmd](bank, args)
     if args.cmd in ("add", "add-lecture", "use"):
-        save_bank(bank_path, bank)
+        save_bank(path, bank)
 
 
 if __name__ == "__main__":

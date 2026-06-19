@@ -3,12 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <title>__TITLE__</title>
+<script>
+window.MathJax = {
+  tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']] }
+};
+</script>
+<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
+        onerror="window.__MATHJAX_FAILED__=true"></script>
 <style>
   :root { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
   body { margin: 0; background: #f5f5f2; color: #1f2937; }
   #wrap { max-width: 760px; margin: 0 auto; padding: 24px 18px 60px; }
   h1 { font-size: 18px; margin: 0 0 4px; }
   #meta { font-size: 12px; color: #6b7280; margin-bottom: 14px; }
+  #mjwarn { display: none; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #92400e; margin-bottom: 12px; }
   #bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
   #fill { height: 100%; width: 0; background: #3b82f6; transition: width .3s; }
   #stats { font-size: 12px; color: #4b5563; margin-bottom: 18px; }
@@ -60,6 +68,7 @@
 <div id="wrap">
   <h1>__TITLE__</h1>
   <div id="meta">__GENERATED__ · 共 <span id="total"></span> 题 · 做完一题立即显示答案与解析</div>
+  <div id="mjwarn">公式渲染组件未加载，数学公式将以 LaTeX 源码显示。</div>
   <div id="bar"><div id="fill"></div></div>
   <div id="stats"></div>
   <div id="main"></div>
@@ -94,6 +103,15 @@ function fullScore() { return QS.reduce((a, q) => a + (q.score || 0), 0); }
 function earned() { return state.reduce((a, s) => a + s.earned, 0); }
 function round1(x) { return Math.round(x * 10) / 10; }
 function isChoice(q) { return q.type === "single" || q.type === "judge"; }
+function typesetMath() {
+  const warn = document.getElementById("mjwarn");
+  if (window.__MATHJAX_FAILED__ && warn) warn.style.display = "block";
+  if (window.MathJax && MathJax.typesetPromise) {
+    MathJax.typesetPromise([document.getElementById("main")]).catch(() => {
+      if (warn) warn.style.display = "block";
+    });
+  }
+}
 
 function updateHeader() {
   const done = state.filter(s => s.answered).length;
@@ -168,6 +186,7 @@ function render() {
     ${navRight(q, st)}
   </div></div>`;
   main.innerHTML = html;
+  typesetMath();
   bind(q, st);
 }
 
@@ -243,6 +262,7 @@ function renderSummary(main) {
     <textarea id="export-area" readonly></textarea>
     <div class="hint" id="copyhint"></div>
   </div>`;
+  typesetMath();
   document.getElementById("review").addEventListener("click", () => { idx = 0; render(); });
   document.getElementById("export").addEventListener("click", () => {
     const text = exportText();

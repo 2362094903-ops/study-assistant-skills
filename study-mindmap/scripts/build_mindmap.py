@@ -7,7 +7,7 @@
   python3 build_mindmap.py knowledge.json --book                     # 整本书总览图
   python3 build_mindmap.py knowledge.json -o <输出目录>               # 默认输出到 knowledge.json 同级 mindmaps/
 
-输出文件：mindmaps/chapter-03.html / mindmaps/book.html
+输出文件：internal/mindmaps/chapter-03.html / book.html（旧布局为 mindmaps/）
 """
 import argparse
 import datetime
@@ -75,7 +75,12 @@ def main():
 
     kpath = pathlib.Path(args.knowledge)
     data = json.loads(kpath.read_text(encoding="utf-8"))
-    out_dir = pathlib.Path(args.out) if args.out else kpath.parent / "mindmaps"
+    if args.out:
+        out_dir = pathlib.Path(args.out)
+    elif kpath.parent.name == "state" and kpath.parent.parent.name == "internal":
+        out_dir = kpath.parent.parent / "mindmaps"
+    else:
+        out_dir = kpath.parent / "mindmaps"
     template = TEMPLATE.read_text(encoding="utf-8")
     book = data.get("textbook", "教材")
 

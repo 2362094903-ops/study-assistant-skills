@@ -21,6 +21,33 @@ IMPORTANCE_ENUM = ["高", "中", "低"]
 ID_RE = re.compile(r"^\d+(\.\d+)+$")
 
 
+def state_dir(study_dir):
+    internal = study_dir / "internal" / "state"
+    if (internal / "knowledge.json").exists() or (study_dir / "internal").exists():
+        return internal
+    return study_dir
+
+
+def check_layout(study_dir, errs):
+    """Require the full modern layout once internal/ exists; ignore legacy workspaces."""
+    if not (study_dir / "internal").exists():
+        return
+    expected_dirs = [
+        study_dir / "open",
+        study_dir / "open" / "chapters",
+        study_dir / "open" / "quizzes",
+        study_dir / "internal" / "state",
+        study_dir / "internal" / "textbook",
+        study_dir / "internal" / "lessons",
+        study_dir / "internal" / "mindmaps",
+        study_dir / "internal" / "reports",
+        study_dir / "question-bank",
+    ]
+    for d in expected_dirs:
+        if not d.exists():
+            errs.append(f"layout: missing directory '{d.relative_to(study_dir)}'")
+
+
 def check_knowledge(path, errs):
     if not path.exists():
         errs.append("knowledge.json missing")
@@ -104,10 +131,12 @@ def main():
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args()
     d = pathlib.Path(args.study_dir)
+    sdir = state_dir(d)
 
     errs = []
-    known_ids = check_knowledge(d / "knowledge.json", errs) or set()
-    check_progress(d / "progress.json", errs, known_ids)
+    check_layout(d, errs)
+    known_ids = check_knowledge(sdir / "knowledge.json", errs) or set()
+    check_progress(sdir / "progress.json", errs, known_ids)
 
     if errs:
         print("workspace contract violations:", file=sys.stderr)
@@ -115,7 +144,7 @@ def main():
             print("  - " + e, file=sys.stderr)
         sys.exit(1)
     if not args.quiet:
-        print(f"OK: knowledge.json ({len(known_ids)} points) and progress.json conform to the contract")
+        print(f"OK: state files in {sdir} ({len(known_ids)} points) conform to the contract")
 
 
 if __name__ == "__main__":

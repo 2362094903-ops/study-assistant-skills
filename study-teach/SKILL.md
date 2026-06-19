@@ -1,122 +1,124 @@
 ---
 name: study-teach
 description: >
-  Lecture & explanation sub-skill (orchestrated by study-assistant; also usable standalone). Use when the learner wants a chapter/section taught ("开始讲解" "讲一下第三章" "生成讲义" "继续下一节"), asks a follow-up question about studied content, or says they didn't understand ("给我讲讲X" "没听懂，重讲一遍"). Generates complete section-by-section lecture notes in two selectable modes — 深入讲解 (deep understanding, leads with textbook原文) or 考试速通 (exam speed-run, 解题思维 + targeted examples by importance/question frequency) — as Obsidian Markdown and/or interactive HTML with rendered math, robust Markdown tables, and generated function-graph figures when the source teaches with curves; conversation is reserved for targeted Q&A and re-teaching.
+  Lecture & explanation sub-skill (orchestrated by study-assistant; also usable standalone). Use when the learner wants a chapter/section/knowledge point taught ("开始讲解" "讲一下第三章" "生成讲义" "继续下一个知识点"), asks a follow-up question about studied content, or says they didn't understand. Generates exactly one high-quality knowledge-point lecture at a time as structured JSON plus HTML/Markdown, then merges all completed points into one audited chapter-level main HTML. Must preserve source formulas, figures/tables, and worked examples when they help understanding.
 ---
 
 # Teaching: Lecture Notes + Q&A
 
-**Output language: ALL learner-facing content MUST be in Simplified Chinese** — lecture notes, Q&A answers, examples. These instructions are English only for cross-model reliability.
+**Output language: ALL learner-facing content MUST be Simplified Chinese.**
 
-Two modes. **Lecture mode is the default**: a full set of section notes the learner reads at their own pace beats streaming explanations point by point. **Conversation is for Q&A**: targeted answers, alternative explanations, gaps the notes missed.
+Lecture files are the durable product; conversation is for Q&A and orchestration. Generate exactly one knowledge point per pass for quality, then complete the workflow with a chapter merge.
 
-## Lecture mode (default)
+## File and rendering standards
 
-### One-time setup per textbook
+Use the scripts. Do not hand-write lecture HTML.
 
-Ask the learner once which lecture format they want and store it as `lecture_format` in progress.json:
+- Point JSON: `<study-dir>/internal/lessons/chapter-XX/<point-id>-<name>.json`
+- Point HTML/MD: same folder, rendered by `build_lecture.py`
+- Chapter assets: `<study-dir>/internal/lessons/chapter-XX/assets/`
+- Main chapter HTML: `<study-dir>/open/chapters/chapter-XX.html`, published by `build_chapter_lecture.py --publish <study-dir>`
+- Audit reports: `<study-dir>/internal/reports/chapter-XX-audit.md`
 
-- **Obsidian Markdown** — 公式原生渲染、例题答案折叠、双链、手机可同步（学习区文件夹直接作为 vault 打开）
-- **interactive HTML** — 浏览器阅读、侧边目录、例题点击展开、"标记已学"进度（公式经 MathJax 渲染，需联网；离线退化为 LaTeX 源码）
-- **both**
+Legacy root `lessons/` workspaces are acceptable, but new work should use `internal/lessons/`.
 
-### Pick the teaching MODE (per section — confirm before generating)
+## One-time setup per textbook
 
-There are two teaching modes. Default to whatever progress.json's `study_mode` last held; before generating each section, briefly let the learner switch (harder chapters → deep, easy ones → speedrun). Store the chosen mode back to progress.json `study_mode`. The mode sets `mode` in the lecture JSON and changes which fields each point carries:
+Ask once which lecture format to use and store it in `progress.json` as `lecture_format`:
 
-- **`deep` 深入讲解** — truly understand and master the textbook. Each point leads with the textbook's key original wording, then a rich explanation. Substantial: a core point's `formal` runs ~500–1200 Chinese characters with full derivation/reasoning.
-- **`speedrun` 考试速通** — exam-focused, no lengthy theory. Each point states the conclusion in 1–3 sentences, then the **解题思维/套路** (how to read and solve this question type). Worked examples are targeted to high-value points, not mechanically attached to every point. The center of gravity is doing problems and the method, not understanding for its own sake.
+- `obsidian`
+- `html`
+- `both`
 
-Mode affects **lectures only** — quizzing (study-quiz) behaves the same in both modes.
+Ask/confirm the teaching mode per section, then use that mode consistently for every point in the section. Default to `progress.json.study_mode`:
 
-### Generate one SECTION per pass — never a whole chapter
+- `deep` 深入讲解: source wording, intuition, formal derivation, symbols explained.
+- `speedrun` 考试速通: exam conclusion, recognition cues, solving routine, traps.
 
-Long generations degrade toward the end. One section (3.1, 3.2, ...) at a time; the learner reads it, asks questions, then requests the next.
+## Generate one knowledge point per pass
 
-1. Read the section's source text in `textbook/` — lectures must stay faithful to the textbook, exams grade against it. Check `exam-style.md` if present; `exam_focus` fields must cite it.
-2. Write the lecture as JSON to `lessons/chapter-XX/<section>.json` with `"mode": "deep"|"speedrun"`, schema documented at the top of `~/.claude/skills/study-teach/scripts/build_lecture.py`. Every point of this section in knowledge.json must appear, with the same ids. Fields by mode:
+Long generations degrade. Each pass must produce one lecture JSON containing exactly one item in `points`, then render one point HTML/MD. Do not batch a whole section or chapter into one model generation.
 
-   Before allocating examples, if `question-bank.json` exists, run a compact frequency summary for this section's point ids:
+1. Read the source passages needed for the selected point from `internal/textbook/chapter-XX.md`.
+2. Check `internal/state/exam-style.md` if present.
+3. Check the global question-bank frequency before allocating examples:
    ```bash
    python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> stats --point <id1> <id2> ...
    ```
-   Use the output (`entries`, `used_total`, `types`) to identify which points the existing bank has tested most often. Mention the 1–3 highest-frequency points in your own planning notes, then put examples there first.
+4. Scan the source section for formulas, figures/tables/charts, and examples. If they help understanding, they must appear in the lecture:
+   - formulas in LaTeX `$...$` / `$$...$$`, with every symbol explained;
+   - source tables as real Markdown tables, not spacing or screenshots;
+   - useful figures/charts as `figures[]` with `path`, `caption`, `source`, and `alt`;
+   - source examples as `examples[]` with complete solution and `source_ref`.
+5. Write one lecture JSON using the schema in `build_lecture.py`. `points` must contain only the selected knowledge point, with the exact id/name from `knowledge.json`; keep the top-level `section` field for chapter grouping.
+6. Render:
+   ```bash
+   python3 ~/.claude/skills/study-teach/scripts/build_lecture.py \
+     <study-dir>/internal/lessons/chapter-XX/<point>.json --format <lecture_format>
+   ```
+7. Update state, regenerate mind map/dashboard, and ingest examples:
+   ```bash
+   python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> add-lecture <point>.json
+   ```
 
-   **Both modes**: `exam_focus` (importance + question types, cite exam-style.md when present), `pitfalls`, `memory_hook` (mnemonic/framework; humanities: a 3–5 bullet recitation version), optional `source_ref`, optional `figures`, `links`.
+## Lecture JSON expectations
 
-   **deep mode**: `textbook_excerpt` (教材关键原文 — quote the source verbatim when the extracted `textbook/` text is clean; paraphrase the core wording when it is scanned/messy), `intuition` (analogy + where it breaks), `formal` (REQUIRED — textbook-grade statement, LaTeX for every formula, every symbol explained, full derivation/reasoning; this is where depth lives — be thorough, ~500–1200 chars for core points). Add examples only where practice meaningfully improves understanding or the point is frequently tested.
+Required top-level fields: `textbook`, `chapter_id`, `chapter_title`, `section`, `mode`, `points`.
 
-   **speedrun mode**: `key_point` (1–3 sentences nailing the exam point), `method` (REQUIRED — 解题思维: how to recognize this question type, which formula, what steps, what traps to watch), and optional `examples` for high-value points; emphasize the solving routine, not theory.
+Each point needs `id`, `name`, `importance`, and:
 
-   **Example allocation** (both modes): examples are optional. Do **not** require every knowledge point to have an example. Prefer points with higher question-bank `entries` / `used_total`; if there is no useful question bank, use the courseware/textbook's own worked examples as the priority signal. Then allocate by `importance`: high-importance points usually get 1–3 examples, medium points get an example only if they are computational/confusable, and low/background points can have none. Each included example is `{problem, solution, answer?, source_ref?}`. `solution` is the complete worked solution. `answer` (optional) is the problem's **final answer** — a string, or a list of acceptable forms (e.g. `["50", "50万元"]`). `source_ref` should name the source when the example is adapted from a textbook/courseware example (e.g. `教材例2-1`, `课件第14页例题`). In the HTML lecture each example is **interactive**: the learner types an attempt and submits; if `answer` is present the page auto-checks it (✓/✗) and then reveals the full solution + a self-grade; if `answer` is absent it reveals the solution + self-grade on submit. So provide `answer` for calculation/short-answer problems (definite final answer) and omit it for open conceptual ones. Obsidian Markdown stays static (problem + foldable solution).
+- both modes: `exam_focus`, `pitfalls`, `memory_hook`, optional `source_ref`, `figures`, `links`;
+- `deep`: `textbook_excerpt`, `intuition`, required `formal`;
+- `speedrun`: `key_point`, required `method`.
 
-   **Source references**: preserve traceability. When a point, table, figure, or example is based on a specific source location, set `source_ref` on the point or example: `教材第37页`, `课件第12页图3-2`, `教材例2-1`, `课堂讲义p.8表1`. For Markdown tables embedded in `formal`, `method`, `solution`, or other rich text, add a short source sentence immediately before or after the table unless the surrounding point already has a precise `source_ref`. Do not invent page numbers; if the source location is unknown, omit the field rather than fabricating it.
+Examples are optional overall, but not optional when the source material has a worked example that is useful for understanding or exams. Allocate examples in this order:
 
-   **Markdown is fine in any text field** — `**bold**`, `-`/`1.` lists, and standard Markdown tables render correctly in both HTML and Obsidian. Keep math in LaTeX `$...$` / `$$...$$`.
+1. uploaded/source examples and real exam questions;
+2. high-frequency points from the global question bank;
+3. high-importance/confusable/computational points;
+4. medium points only when practice materially helps;
+5. low/background points usually get none.
 
-   **Tables**: when the source contains financial statements, ratio summaries, formula comparisons, or step-by-step computation grids, write them as normal Markdown tables with a separator row (`|---|---|`). Do not simulate tables with spaces, tabs, ASCII boxes, or screenshots. The HTML renderer gives tables visible borders and horizontal scrolling, so use real tables whenever comparison is the point.
+Each example must include `problem` and `solution`; calculation/short-answer examples should include `answer` for auto-checking. Use `source_ref` for textbook/courseware/paper examples; use `source_ref: "讲义原创"` for original examples.
 
-   **Function graphs / curve explanations**: if the textbook or courseware explains a concept through a function image, curve, coordinate plot, slope, intersection, convexity/concavity, or comparative statics, the lecture must include a generated figure rather than text-only explanation.
-   - Prefer Python/matplotlib via the bundled helper:
-     ```bash
-     python3 ~/.claude/skills/study-teach/scripts/plot_function.py \
-       --curve "低增长情形=0.08*x" --curve "高增长情形=0.16*x" \
-       --x-min 0 --x-max 0.3 --xlabel "销售增长率" --ylabel "外部融资需求" \
-       --title "增长率与外部融资需求" \
-       -o <study-dir>/lessons/chapter-XX/assets/<section>-<point>-curve.png
-     ```
-   - MATLAB is also acceptable when the user's environment already has it and the graph is easier to express there; still save a PNG under the same `assets/` folder.
-   - Include the figure in the point JSON:
-     ```json
-     "figures": [
-       {
-         "path": "assets/3.5-efn-growth.png",
-         "caption": "销售增长率越高，EFN 通常越大；斜率由资产需求、自发负债和留存收益共同决定。",
-         "source": "Python/matplotlib；根据教材 EFN 公式绘制",
-         "alt": "EFN 随销售增长率上升的函数图像"
-       }
-     ]
-     ```
-   - In the surrounding explanation, explicitly teach the graph: axes mean什么、曲线/斜率/交点说明什么、考试中如何从图转成公式或判断题结论。Do not add decorative figures that are not used in the explanation.
-3. Render (the script validates the JSON and fails loudly on missing/mode-required fields):
+## Figures, tables, and graphs
 
-```bash
-python3 ~/.claude/skills/study-teach/scripts/build_lecture.py <section>.json --format <lecture_format>
-```
+If the textbook/courseware explains a concept through a graph, coordinate plot, function curve, table, flowchart, or diagram, do not replace it with text-only explanation when the visual helps understanding.
 
-4. Deliver: `open` the HTML, or for Obsidian give the file path inside the vault. In conversation say only 2–3 Chinese sentences: what the section covers, the 1–2 points that deserve the most attention, and a reminder that solutions are collapsed — attempt first.
-5. Update state: covered points `status` → 已讲解; progress.json (`current_point`, `next_action`, one log entry); regenerate the mind map; ingest any section examples into the question bank (`python3 ~/.claude/skills/study-quiz/scripts/bank.py <study-dir> add-lecture <section>.json`) so study-quiz can reuse them later without re-reading source text. It is fine if a low-frequency section adds zero examples. Show the pacing menu.
+- For source images/figures, use `study-img` to produce a teaching-grade description before writing the lecture.
+- For function graphs or comparative statics, generate a clean PNG with `plot_function.py` or another reliable plotting tool and save it under `assets/`.
+- Explain every included visual: axes/rows/columns, what changes, what conclusion follows, and how exams transform the visual into formulas or judgments.
 
-## Q&A / re-teach mode (conversation)
+## Q&A / re-teach mode
 
-Triggered by any question about the material, or "没听懂".
+Answer exactly what was asked, in Chinese. Point back to the lecture file so the notes stay the source of truth. If the question exposes a real gap, offer to patch the point JSON and rerender.
 
-- Answer exactly what was asked — targeted and concise, in Chinese. Point back to the lecture file ("讲义 3.1 的易错辨析也写了这一点") so the notes remain the single source of truth.
-- Re-teaching means a genuinely different path: different analogy, different example, a text sketch — never the lecture's wording again.
-- Socratic touches are welcome ("想一想，如果价格翻倍会怎样？——对，……").
-- If a question exposes a real gap in the notes, offer to patch the section JSON and re-render.
+Re-teaching must use a different route: different analogy, example, drawing description, or step sequence. Do not merely repeat the lecture wording.
 
-## After every unit
+## Chapter aggregation (mandatory for chapter completion)
 
-Lecture generation changes status; Q&A alone does not. Update files immediately, then show the menu. A nudge is fine ("趁热打铁来几道题？") — the learner decides.
-
-## Chapter aggregation (整章合并讲义)
-
-When all sections of a chapter have been generated and the learner wants one combined file (e.g. "把本章讲义合成一个HTML"), run:
+Immediately after the last knowledge point in a chapter has its lecture JSON/HTML, build the main chapter lecture:
 
 ```bash
 python3 ~/.claude/skills/study-teach/scripts/build_chapter_lecture.py \
-  <study-dir>/lessons/chapter-XX/ --format <lecture_format>
+  <study-dir>/internal/lessons/chapter-XX/ --format html --publish <study-dir>
 ```
 
-The script:
-- Globs all `*.json` section files in the chapter directory, validates each, and sorts by section number
-- Reuses the exact same rendering pipeline as `build_lecture.py` (`render_html_points`, `render_rich`, etc.) so point content is identical
-- Produces `chapter-XX.html` and/or `chapter-XX.md` with:
-  - **Multi-level TOC**: sections as group headers (with mode tags), points nested as links
-  - **Section dividers** (`div.ch-sec`): each section gets a `<h2>` title + mode tag + its rendered points
-  - **Chapter-level meta line**: textbook, section count, total points, date, example count
-  - **Chapter-scoped localStorage key** (`lecture-done-chapter-X-`) so "已学完" tracking does not interfere with per-section HTML
-- Markdown output uses a 3-level heading hierarchy (`#` chapter, `##` section, `###` point) with Obsidian-style foldable callouts
+Then run:
 
-The learner can request this at any time; it does not modify any state files.
+```bash
+python3 ~/.claude/skills/study-assistant/scripts/audit_chapter.py <study-dir> --chapter <N>
+```
+
+The merger groups one-point JSON files by their top-level `section` and orders points by id. If the audit reports blockers, modify the relevant point JSON, rerender the point, rerun chapter aggregation, and rerun the audit. Only after the audit passes should the dashboard be refreshed and the chapter presented as complete.
+
+The learner-facing final chapter file is `open/chapters/chapter-XX.html`. Individual point HTML files stay internal.
+
+## After every unit
+
+Lecture generation changes status; Q&A alone does not.
+
+1. Update covered points to `已讲解`.
+2. Update `progress.json` and append the log entry.
+3. Regenerate the mind map and dashboard.
+4. Show the pacing menu.

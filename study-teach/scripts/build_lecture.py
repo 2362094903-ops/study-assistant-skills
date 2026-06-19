@@ -80,6 +80,10 @@ whenever the content comes from a specific textbook page, slide, figure, table,
 or worked example. Examples are optional, but every included example (`example`
 or `examples[]`) must have problem+solution. Deep mode additionally requires
 `formal`; speedrun mode additionally requires `method`.
+
+For the standard workflow, each JSON contains exactly one knowledge point. The
+output filename is `<point-id>-<point-name>.html/.md`, so every point keeps its
+own internal file. Multi-point JSON remains supported for legacy workspaces.
 """
 import argparse
 import datetime
@@ -810,7 +814,11 @@ def main():
 
     out_dir = pathlib.Path(args.out) if args.out else src.parent
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = sanitize(data["section"])
+    if len(data["points"]) == 1:
+        point = data["points"][0]
+        stem = sanitize(f"{point['id']}-{point['name']}")
+    else:
+        stem = sanitize(data["section"])
     if args.format in ("obsidian", "both"):
         (out_dir / f"{stem}.md").write_text(render_markdown(data), encoding="utf-8")
         print(f"generated {out_dir / (stem + '.md')}")
